@@ -106,6 +106,22 @@ test('deriveJobStatus maps the team-approved public workflow', () => {
     'Your custom-install job is in progress and nearing completion. Our scheduler will be in touch to book the installation.',
   );
   assert.equal(customReadyToInstall.schedulerSlaType, 'installation');
+  const externalContractor = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'External Contractor Only',
+    substatus: { substatus: 'To Be Booked In' },
+  });
+  assert.equal(externalContractor.label, 'Approved');
+  assert.equal(
+    externalContractor.message,
+    'Your quote has been accepted. The estimated lead time for booking is up to 15 business days from the date of approval during standard business periods.',
+  );
+  assert.equal(externalContractor.schedulerSlaType, undefined);
+  assert.equal(deriveJobStatus('Approved', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'External Contractor Only',
+    substatus: { substatus: 'Booked In' },
+  }).label, 'Booked');
   assert.equal(deriveJobStatus('Approved', '', 'minor', {
     status: 'Not Started', substatus: { substatus: 'Booked' },
   }).label, 'Booked');

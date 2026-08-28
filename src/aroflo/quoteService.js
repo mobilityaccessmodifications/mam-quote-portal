@@ -266,6 +266,11 @@ export function isCustomInstall(task) {
   return /\bcustom\b/i.test(taskType(task));
 }
 
+/** Whether AroFlo assigns this job to an external contractor workflow. */
+export function isExternalContractor(task) {
+  return /\bexternal contractor\b/i.test(taskType(task));
+}
+
 /** Which scheduler timeframe applies to an unbooked approved job. */
 export function schedulerSlaType(task, hasSiteVisit = false) {
   if (hasSiteVisit || /\bstock\b/i.test(taskType(task))) return 'installation';
@@ -417,6 +422,24 @@ export function deriveJobStatus(
       step: 2,
       label: 'Site visit completed',
       message: '',
+      tone: 'approved',
+    };
+  }
+
+  // External-contractor jobs have a separate booking process. Do not show the
+  // internal scheduler wording or a generic SLA for these jobs; the reviewed
+  // customer-facing lead time below is the only commitment we make.
+  if (
+    isExternalContractor(task) &&
+    taskSub !== 'booked' &&
+    !taskSub.startsWith('booked in')
+  ) {
+    return {
+      ...base,
+      steps: jobSteps,
+      step: 2,
+      label: 'Approved',
+      message: 'Your quote has been accepted. The estimated lead time for booking is up to 15 business days from the date of approval during standard business periods.',
       tone: 'approved',
     };
   }
