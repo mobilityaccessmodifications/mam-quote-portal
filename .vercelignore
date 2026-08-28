@@ -1,0 +1,22 @@
+# Never upload secrets or local-only files to Vercel's build.
+.env
+.env.local
+.env.*.local
+
+# Installed by Vercel during the build.
+node_modules
+
+# Read-only recon output — contains staff names / job numbers.
+scripts/aroflo-metrics.json
+
+# Local dev entrypoint only — Vercel serves the app via api/index.js. Excluding it
+# stops Vercel from inferring a second, root-level serverless function.
+server.js
+
+# Local scratch / logs / tests (not needed at runtime).
+output/
+tmp/
+test/
+*.log
+.DS_Store
+.git

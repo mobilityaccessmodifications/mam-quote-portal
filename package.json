@@ -1,0 +1,20 @@
+{
+  "name": "mam-quote-status",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Customer quote-status portal for Mobility Access Modifications, backed by the AroFlo API.",
+  "type": "module",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test test/*.test.js",
+    "check-aroflo": "node scripts/test-connection.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

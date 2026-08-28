@@ -1,0 +1,178 @@
+/* ============================================================================
+   Mobility Access Modifications — Quote Portal
+   Brand palette taken directly from mobilityaccess.com.au:
+     primary orange #e36e25 / hover #b95618, charcoal #292929,
+     body grey #444, warm cream backgrounds #fdf6f1 / #f9e1d2.
+   Re-theme by editing the variables below.
+   ============================================================================ */
+:root {
+  --brand:        #e36e25;   /* MAM orange — decorative accents (dots, borders, focus) */
+  --brand-dark:   #b95618;
+  /* Text-on-colour tokens chosen to meet WCAG AA (>=4.5:1 with white text):     */
+  --brand-btn:      #bd5a14; /* button background (white text = 4.53:1)           */
+  --brand-btn-hover:#a8500f; /* button hover       (white text = 5.50:1)          */
+  --brand-link:     #a8500f; /* link / phone text on white & cream (passes AA)    */
+  --accent:       var(--brand);
+  --cream:        #fdf6f1;   /* page background       */
+  --cream-2:      #f9e1d2;   /* soft peach            */
+  --ink:          #292929;   /* headings              */
+  --ink-soft:     #555555;   /* body text             */
+  --line:         #ece3da;
+  --bg:           #ffffff;
+  --danger:       #c0392b;
+  --ok:           #2e7d32;
+  --surface-soft: #fffaf6;
+  --line-strong:  #e2d6cc;
+  --shadow-sm:    0 6px 18px rgba(41, 41, 41, 0.07);
+  --shadow-lg:    0 18px 48px rgba(41, 41, 41, 0.13);
+  --focus-ring:   0 0 0 4px rgba(227, 110, 37, 0.22);
+  --radius:       16px;
+  --radius-sm:    10px;
+  --shadow:       0 14px 40px rgba(41, 41, 41, 0.10);
+  --font:         'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink-soft);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(249, 225, 210, 0.62), transparent 32rem),
+    var(--cream);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+.container { width: 100%; max-width: 560px; margin: 0 auto; padding: 0 20px; }
+a { color: var(--brand-link); }
+
+.skip-link { position: absolute; left: -999px; top: 0; z-index: 100; background: var(--brand-btn); color: #fff; padding: 12px 18px; border-radius: 0 0 8px 0; }
+.skip-link:focus { left: 0; }
+#tracker:focus { outline: none; }
+:focus-visible { outline: 3px solid var(--brand-btn); outline-offset: 2px; border-radius: 4px; }
+
+/* Visually hidden but available to screen readers. */
+.sr-only {
+  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* ----------------------------- Header ----------------------------- */
+.site-header { background: rgba(255, 255, 255, 0.96); border-bottom: 1px solid var(--line); box-shadow: 0 1px 0 rgba(41, 41, 41, 0.02); }
+.header-inner { max-width: 960px; display: flex; align-items: center; justify-content: space-between; min-height: 84px; gap: 16px; }
+.brand { display: inline-flex; align-items: center; }
+.brand img { height: 56px; width: auto; display: block; }
+.header-phone { font-weight: 700; color: var(--brand-link); text-decoration: none; white-space: nowrap; font-size: 17px; }
+.header-phone:hover { color: var(--brand-btn-hover); }
+
+/* ----------------------------- Tracker ----------------------------- */
+.tracker-wrap { flex: 1; padding: 48px 0 64px; }
+.tracker-card {
+  position: relative; overflow: hidden;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg); padding: 36px 32px;
+}
+.tracker-card::before {
+  content: ""; position: absolute; inset: 0 0 auto; height: 4px;
+  background: linear-gradient(90deg, var(--brand), #f1a067 55%, var(--brand-dark));
+}
+.tracker-card h1 { margin: 0 0 8px; font-size: 30px; line-height: 1.15; color: var(--ink); letter-spacing: -0.03em; }
+.tracker-sub { margin: 0 0 24px; color: var(--ink-soft); font-size: 16px; }
+
+.field { margin-bottom: 18px; }
+.field label { display: block; font-weight: 600; margin-bottom: 7px; font-size: 15px; color: var(--ink); }
+.field input {
+  width: 100%; padding: 14px 15px; font-size: 16px; font-family: inherit;
+  border: 1.5px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink);
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+.field input:hover { border-color: #cdbbad; }
+.field input:focus { border-color: var(--brand); box-shadow: var(--focus-ring); outline: none; background: var(--surface-soft); }
+.field input.invalid { border-color: var(--danger); }
+
+/* Internal-testing (job-number-only) mode hides the name + post-code identity fields.
+   Toggled by app.js after it reads /api/health. Default (production) shows all fields. */
+body.job-only .optional-field { display: none; }
+
+.btn-primary {
+  width: 100%; border: none; cursor: pointer; margin-top: 4px;
+  background: linear-gradient(135deg, var(--brand-btn), #c96a20); color: #fff; font-weight: 700; font-size: 17px; font-family: inherit;
+  padding: 15px 18px; border-radius: var(--radius-sm); box-shadow: 0 7px 16px rgba(189, 90, 20, 0.22);
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  transition: background 0.18s, box-shadow 0.18s, transform 0.08s;
+}
+.btn-primary:hover { background: linear-gradient(135deg, var(--brand-btn-hover), #b65a16); box-shadow: 0 9px 20px rgba(168, 80, 15, 0.28); transform: translateY(-1px); }
+.btn-primary:active { transform: translateY(1px); }
+.btn-primary[disabled] { opacity: 0.8; cursor: progress; }
+.spinner { width: 18px; height: 18px; border-radius: 50%; border: 2.5px solid rgba(255,255,255,0.45); border-top-color: #fff; animation: spin 0.7s linear infinite; display: none; }
+.btn-primary.loading .spinner { display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.form-error { color: var(--danger); font-size: 14px; margin: 14px 0 0; font-weight: 600; }
+
+/* ----------------------------- Results ----------------------------- */
+.results:not(:empty) { margin-top: 22px; }
+.result-card {
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: var(--shadow-sm); padding: 30px 28px; animation: rise 0.3s ease;
+}
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.result-head { display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline; justify-content: space-between; }
+.result-head h3 { margin: 0; font-size: 19px; color: var(--ink); }
+.result-job { color: var(--ink-soft); font-size: 13.5px; font-weight: 600; }
+.status-pill { display: inline-flex; align-items: center; font-weight: 700; font-size: 13px; letter-spacing: 0.01em; padding: 7px 14px; border-radius: 999px; margin: 14px 0 18px; background: var(--cream-2); color: var(--ink); box-shadow: inset 0 0 0 1px rgba(185, 86, 24, 0.12); }
+.status-pill.s0 { background: #fdecea; color: var(--danger); }
+.status-pill.s4 { background: #e6f3e7; color: #1b5e20; }
+
+.unit-badge { display: inline-block; margin: 2px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--brand-link); }
+
+/* Stepper — adapts to however many steps the unit's flow has (3 or 4). */
+.stepper { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; margin: 4px 0 24px; padding: 2px 0; }
+.step { text-align: center; position: relative; padding-top: 26px; font-size: 12px; color: var(--ink-soft); }
+.step::before { content: ""; position: absolute; top: 5px; left: 50%; width: 15px; height: 15px; transform: translateX(-50%); border-radius: 50%; background: #fff; border: 3px solid var(--line); z-index: 2; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }
+.step::after { content: ""; position: absolute; top: 11px; left: -50%; width: 100%; height: 3px; background: var(--line); z-index: 1; }
+.step:first-child::after { display: none; }
+.step.done::before { content: "\2713"; background: var(--brand); border-color: var(--brand); } /* checkmark = non-colour cue */
+.step.done::after { background: var(--brand); }
+.step.current::before { box-shadow: var(--focus-ring); }
+.step.current { color: var(--ink); font-weight: 700; }
+
+.status-message { font-size: 15px; color: var(--ink); margin: 0 0 18px; background: var(--surface-soft); padding: 15px 17px; border: 1px solid var(--line); border-left: 4px solid var(--brand); border-radius: var(--radius-sm); }
+.status-message.declined { border-left-color: var(--danger); }
+
+.booking-panel { margin: 0 0 18px; padding: 17px; border: 1px solid #cfe2d0; border-radius: var(--radius-sm); background: #f1f8f2; box-shadow: var(--shadow-sm); }
+.booking-panel h4 { margin: 0 0 12px; color: #1b5e20; font-size: 15px; }
+.booking-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid rgba(46, 125, 50, 0.14); border-radius: 8px; }
+.booking-grid > div { padding: 11px 12px; background: rgba(255, 255, 255, 0.58); }
+.booking-grid dt { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin-bottom: 2px; }
+.booking-grid dd { margin: 0; color: var(--ink); font-size: 15px; font-weight: 700; }
+.scheduler-timeframe { margin: -4px 0 18px; padding-left: 14px; border-left: 3px solid var(--accent); color: var(--ink); line-height: 1.5; }
+
+.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; border-top: 1px solid var(--line); padding-top: 18px; overflow: hidden; border-radius: var(--radius-sm); }
+.detail-grid > div { padding: 11px 12px; background: var(--surface-soft); border: 1px solid var(--line); }
+.detail-grid dt { font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); margin-bottom: 2px; }
+.detail-grid dd { margin: 0; font-weight: 600; font-size: 15px; color: var(--ink); }
+.notice-card { background: var(--bg); border: 1px solid var(--line); border-left: 5px solid var(--brand); border-radius: var(--radius); box-shadow: var(--shadow-sm); padding: 24px 26px; animation: rise 0.3s ease; }
+.notice-card.error { border-left-color: var(--danger); }
+.notice-card h3 { margin: 0 0 6px; font-size: 17px; color: var(--ink); }
+.notice-card p { margin: 0; color: var(--ink-soft); }
+
+/* ----------------------------- Footer ----------------------------- */
+.site-footer { background: var(--ink); color: #cfc6bd; padding: 22px 0; text-align: center; }
+.site-footer .container { max-width: 960px; }
+.site-footer p { margin: 2px 0; font-size: 14px; }
+.site-footer a { color: #fff; font-weight: 600; }
+.footer-fine { color: #9b938b; font-size: 12.5px; }
+
+@media (max-width: 480px) {
+  .brand img { height: 46px; }
+  .tracker-card { padding: 26px 20px; }
+  .stepper { gap: 10px 6px; }
+  .step { font-size: 11px; }
+  .booking-grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; scroll-behavior: auto !important; } }
