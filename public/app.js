@@ -106,7 +106,6 @@ function quoteCardHtml(q, jobNumber, idx, total) {
 
   const details = [];
   const created = fmtDate(q.dateCreated); if (created) details.push(['Date created', created]);
-  const due = fmtDate(q.dueDate); if (due) details.push(['Valid until', due]);
   const approved = fmtDate(q.dateApproved); if (approved) details.push(['Date accepted', approved]);
 
   const bookingDetails = [];
