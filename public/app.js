@@ -149,7 +149,7 @@ function quoteCardHtml(q, jobNumber, idx, total) {
       ${q.unitLabel ? `<p class="unit-badge">${escapeHtml(q.unitLabel)}</p>` : ''}
       <span class="status-pill ${pillClass}">${escapeHtml(q.statusLabel)}</span>
       ${stepperHtml(q.step, q.steps, declined)}
-      <p class="status-message${declined ? ' declined' : ''}">${escapeHtml(q.statusMessage)}</p>
+      ${q.statusMessage ? `<p class="status-message${declined ? ' declined' : ''}">${escapeHtml(q.statusMessage)}</p>` : ''}
       ${q.schedulerTimeframe ? `<p class="scheduler-timeframe"><strong>Expected scheduler contact:</strong> ${escapeHtml(q.schedulerTimeframe)}</p>` : ''}
       ${bookingHtml}
       ${detailHtml}
@@ -167,7 +167,7 @@ function renderVerified(data) {
     .join('');
   // Concise, ordered summary for screen readers.
   const first = data.quotes[0];
-  announce(`Status for job ${data.jobNumber}: ${first.statusLabel}. ${first.statusMessage}`);
+  announce(`Status for job ${data.jobNumber}: ${[first.statusLabel, first.statusMessage].filter(Boolean).join('. ')}`);
   focusResults();
 }
 

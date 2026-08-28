@@ -146,21 +146,15 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
     'Your quote has been approved. Our scheduler will be in touch to book the installation.',
   );
   const visitedQuoteUpdate = deriveJobStatus('In Progress', '', 'minor', customTask, { hasSiteVisit: true });
-  assert.equal(visitedQuoteUpdate.label, 'Site visit complete');
-  assert.equal(
-    visitedQuoteUpdate.message,
-    'We’ve attended the site and completed the measure. We’re finalising the next update to your quote.',
-  );
+  assert.equal(visitedQuoteUpdate.label, 'Site visit completed');
+  assert.equal(visitedQuoteUpdate.message, '');
   const approvedQuoteUpdate = deriveJobStatus('Approved', '', 'minor', {
     status: 'Pending',
     tasktype: 'Custom Install',
     substatus: { substatus: 'Increase Approval Requested' },
   }, { hasSiteVisit: true });
-  assert.equal(approvedQuoteUpdate.label, 'Site visit complete — quote update in progress');
-  assert.equal(
-    approvedQuoteUpdate.message,
-    'We’ve attended the site and completed the measure. We’re finalising the updated quote for approval.',
-  );
+  assert.equal(approvedQuoteUpdate.label, 'Site visit completed');
+  assert.equal(approvedQuoteUpdate.message, '');
 });
 
 test('scheduler timeframe is only added for the required booking action', () => {
@@ -419,7 +413,7 @@ test('live lookup detects an ended visit for an approved quote update', async ()
 
   const result = await svc.lookup('1070', '', '');
   assert.equal(result.outcome, 'verified');
-  assert.equal(result.quotes[0].statusLabel, 'Site visit complete — quote update in progress');
+  assert.equal(result.quotes[0].statusLabel, 'Site visit completed');
   assert.deepEqual(calls.map((call) => call.zone), ['Quotes', 'Tasks', 'Schedules']);
 });
 

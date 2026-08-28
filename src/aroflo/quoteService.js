@@ -347,15 +347,12 @@ export function deriveJobStatus(
 
   if (quoteState !== 'approved') {
     if (hasSiteVisit) {
-      const customVisit = isCustomInstall(task);
       return {
         ...quote,
         steps: jobSteps,
         step: 2,
-        label: 'Site visit complete',
-        message: customVisit
-          ? 'We’ve attended the site and completed the measure. We’re finalising the next update to your quote.'
-          : 'We’ve attended the site and your job is in progress. We’re finalising the next update to your quote.',
+        label: 'Site visit completed',
+        message: '',
         tone: 'approved',
       };
     }
@@ -418,8 +415,8 @@ export function deriveJobStatus(
       ...base,
       steps: jobSteps,
       step: 2,
-      label: 'Site visit complete — quote update in progress',
-      message: 'We’ve attended the site and completed the measure. We’re finalising the updated quote for approval.',
+      label: 'Site visit completed',
+      message: '',
       tone: 'approved',
     };
   }
