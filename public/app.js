@@ -105,8 +105,6 @@ function quoteCardHtml(q, jobNumber, idx, total) {
   const pillClass = declined ? 's0' : isFinal ? 's4' : 's1';
 
   const details = [];
-  const created = fmtDate(q.dateCreated); if (created) details.push(['Date created', created]);
-  const approved = fmtDate(q.dateApproved); if (approved) details.push(['Date accepted', approved]);
 
   const bookingDetails = [];
   if (q.booking) {
