@@ -131,6 +131,12 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
 
   assert.equal(hasCompletedSiteVisit(completedVisit, new Date('2026-08-14T00:00:00Z')), true);
   assert.equal(hasCompletedSiteVisit(futureOrHidden, new Date('2026-08-14T00:00:00Z')), false);
+  assert.equal(hasCompletedSiteVisit([
+    { enddatetime: '2026/08/14 10:00:00', ishidden: 'false' },
+  ], new Date('2026-08-14T01:00:00Z')), true, 'an ended same-day appointment is a completed visit');
+  assert.equal(hasCompletedSiteVisit([
+    { enddatetime: '2026/08/14 15:00:00', ishidden: 'false' },
+  ], new Date('2026-08-14T01:00:00Z')), false, 'a same-day future appointment is not complete');
   assert.equal(
     deriveJobStatus('Approved', '', 'minor', customTask, { hasSiteVisit: true }).message,
     'Your quote has been approved. We’ve been to site and taken the custom measures. Our scheduler will be in touch to book the installation.',
@@ -138,6 +144,12 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
   assert.equal(
     deriveJobStatus('Approved', '', 'minor', stockTask, { hasSiteVisit: false }).message,
     'Your quote has been approved. Our scheduler will be in touch to book the installation.',
+  );
+  const visitedQuoteUpdate = deriveJobStatus('In Progress', '', 'minor', customTask, { hasSiteVisit: true });
+  assert.equal(visitedQuoteUpdate.label, 'Site visit complete');
+  assert.equal(
+    visitedQuoteUpdate.message,
+    'We’ve attended the site and completed the measure. We’re finalising the next update to your quote.',
   );
 });
 
@@ -369,6 +381,36 @@ test('live lookup joins the quote to its exact task schedule', async () => {
   assert.equal(result.quotes[0].booking.confirmedWindow, 'Confirmed 9–1');
   assert.deepEqual(calls.map((call) => call.zone), ['Quotes', 'Tasks', 'Schedules']);
   assert.deepEqual(calls[2].where, ['and|taskid|=|task-119613']);
+});
+
+test('live lookup detects an ended visit for an in-progress quote revision', async () => {
+  const svc = new QuoteService({ mockMode: false, jobNumberOnly: true, aroflo: {} });
+  const calls = [];
+  svc.client = {
+    async get(query) {
+      calls.push(query);
+      if (query.zone === 'Quotes') return { zoneResponse: { quotes: [{
+        ...RAW_AROFLO_QUOTE,
+        status: 'In Progress',
+      }] } };
+      if (query.zone === 'Tasks') return { zoneResponse: { tasks: [{
+        taskid: 'task-visit-complete',
+        status: 'Pending',
+        tasktype: 'Custom Install',
+        substatus: { substatus: 'Increase Approval Requested' },
+      }] } };
+      return { zoneResponse: { schedules: [{
+        scheduletype: { type: 'task', typeid: 'task-visit-complete' },
+        enddatetime: '2026/01/01 11:00:00',
+        ishidden: 'false',
+      }] } };
+    },
+  };
+
+  const result = await svc.lookup('1070', '', '');
+  assert.equal(result.outcome, 'verified');
+  assert.equal(result.quotes[0].statusLabel, 'Site visit complete');
+  assert.deepEqual(calls.map((call) => call.zone), ['Quotes', 'Tasks', 'Schedules']);
 });
 
 test('live lookup verifies the resident SiteContact without exposing it', async () => {

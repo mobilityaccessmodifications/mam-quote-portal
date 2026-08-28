@@ -292,9 +292,22 @@ function dateKeyInMelbourne(date) {
 
 export function hasCompletedSiteVisit(schedules, now = new Date()) {
   const todayInMelbourne = dateKeyInMelbourne(now);
+  const timeParts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Melbourne',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const currentTime = Object.fromEntries(timeParts.map(({ type, value }) => [type, value]));
+  const nowInMelbourne = `${todayInMelbourne} ${currentTime.hour}:${currentTime.minute}:${currentTime.second}`;
   return (schedules || []).some((schedule) => {
     if (String(schedule?.ishidden).trim().toLowerCase() === 'true') return false;
-    const endDate = String(schedule?.enddate || schedule?.enddatetime || schedule?.startdate || '')
+    const endDateTime = String(schedule?.enddatetime || '').replace(/\//g, '-');
+    if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(endDateTime)) {
+      return endDateTime < nowInMelbourne;
+    }
+    const endDate = String(schedule?.enddate || schedule?.startdate || '')
       .slice(0, 10)
       .replace(/\//g, '-');
     return /^\d{4}-\d{2}-\d{2}$/.test(endDate) && endDate < todayInMelbourne;
@@ -333,6 +346,19 @@ export function deriveJobStatus(
   const jobSteps = ['Quoted', 'Approved', 'Booked', 'Complete'];
 
   if (quoteState !== 'approved') {
+    if (hasSiteVisit) {
+      const customVisit = isCustomInstall(task);
+      return {
+        ...quote,
+        steps: jobSteps,
+        step: 2,
+        label: 'Site visit complete',
+        message: customVisit
+          ? 'We’ve attended the site and completed the measure. We’re finalising the next update to your quote.'
+          : 'We’ve attended the site and your job is in progress. We’re finalising the next update to your quote.',
+        tone: 'approved',
+      };
+    }
     return {
       ...quote,
       steps: jobSteps,
@@ -632,11 +658,17 @@ export class QuoteService {
       if (!(hasSiteContact ? locationMatched : quoteMatched)) return { outcome: 'mismatch' };
     }
 
-    if (hasApprovedQuote) {
+    const hasNonFinalQuote = quotes.some((q) => {
+      const status = String(q.status || '').trim().toLowerCase();
+      return status !== 'approved' && status !== 'rejected';
+    });
+
+    if (hasApprovedQuote || hasNonFinalQuote) {
       await loadRelevantTask();
 
       const taskSub = taskSubstatus(task).trim().toLowerCase();
       const needsScheduleHistory = task && (
+        hasNonFinalQuote ||
         taskSub === 'booked' ||
         /measures? (complete|printed)|to be manufactured/i.test(taskSub)
       );
