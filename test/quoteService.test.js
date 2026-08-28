@@ -151,6 +151,16 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
     visitedQuoteUpdate.message,
     'We’ve attended the site and completed the measure. We’re finalising the next update to your quote.',
   );
+  const approvedQuoteUpdate = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Pending',
+    tasktype: 'Custom Install',
+    substatus: { substatus: 'Increase Approval Requested' },
+  }, { hasSiteVisit: true });
+  assert.equal(approvedQuoteUpdate.label, 'Site visit complete — quote update in progress');
+  assert.equal(
+    approvedQuoteUpdate.message,
+    'We’ve attended the site and completed the measure. We’re finalising the updated quote for approval.',
+  );
 });
 
 test('scheduler timeframe is only added for the required booking action', () => {
@@ -383,7 +393,7 @@ test('live lookup joins the quote to its exact task schedule', async () => {
   assert.deepEqual(calls[2].where, ['and|taskid|=|task-119613']);
 });
 
-test('live lookup detects an ended visit for an in-progress quote revision', async () => {
+test('live lookup detects an ended visit for an approved quote update', async () => {
   const svc = new QuoteService({ mockMode: false, jobNumberOnly: true, aroflo: {} });
   const calls = [];
   svc.client = {
@@ -391,7 +401,7 @@ test('live lookup detects an ended visit for an in-progress quote revision', asy
       calls.push(query);
       if (query.zone === 'Quotes') return { zoneResponse: { quotes: [{
         ...RAW_AROFLO_QUOTE,
-        status: 'In Progress',
+        status: 'Approved',
       }] } };
       if (query.zone === 'Tasks') return { zoneResponse: { tasks: [{
         taskid: 'task-visit-complete',
@@ -409,7 +419,7 @@ test('live lookup detects an ended visit for an in-progress quote revision', asy
 
   const result = await svc.lookup('1070', '', '');
   assert.equal(result.outcome, 'verified');
-  assert.equal(result.quotes[0].statusLabel, 'Site visit complete');
+  assert.equal(result.quotes[0].statusLabel, 'Site visit complete — quote update in progress');
   assert.deepEqual(calls.map((call) => call.zone), ['Quotes', 'Tasks', 'Schedules']);
 });
 

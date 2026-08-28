@@ -406,6 +406,24 @@ export function deriveJobStatus(
     };
   }
 
+  // An approved quote can still be an update to an existing custom-install job.
+  // When AroFlo confirms a completed site visit and requests an approval increase,
+  // show that work is underway instead of implying the scheduler is yet to start.
+  if (
+    hasSiteVisit &&
+    isCustomInstall(task) &&
+    taskSub.includes('increase approval requested')
+  ) {
+    return {
+      ...base,
+      steps: jobSteps,
+      step: 2,
+      label: 'Site visit complete — quote update in progress',
+      message: 'We’ve attended the site and completed the measure. We’re finalising the updated quote for approval.',
+      tone: 'approved',
+    };
+  }
+
   // A custom-install task that is already in progress and marked for booking
   // indicates that the job is nearing installation. Keep this ahead of the
   // generic "to be booked" branch, which is also used for tasks that have not
@@ -670,6 +688,7 @@ export class QuoteService {
       const needsScheduleHistory = task && (
         hasNonFinalQuote ||
         taskSub === 'booked' ||
+        taskSub.includes('increase approval requested') ||
         /measures? (complete|printed)|to be manufactured/i.test(taskSub)
       );
 
