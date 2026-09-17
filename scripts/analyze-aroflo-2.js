@@ -2,22 +2,10 @@
  * READ-ONLY AroFlo recon, part 2: tradie/subcontractor model + true unit split.
  *   node scripts/analyze-aroflo-2.js
  */
-import config from '../src/config.js';
-import { ArofloClient } from '../src/aroflo/client.js';
+import { createReconClient, sleep, firstArray } from './recon-helpers.js';
 
-const client = new ArofloClient({
-  baseUrl: config.aroflo.baseUrl,
-  secretKey: config.aroflo.secretKey,
-  uEncoded: config.aroflo.uEncoded,
-  pEncoded: config.aroflo.pEncoded,
-  orgEncoded: config.aroflo.orgEncoded,
-  hostIp: config.aroflo.hostIp,
-});
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const firstArray = (zr) => {
-  for (const v of Object.values(zr || {})) if (Array.isArray(v)) return v;
-  return [];
-};
+const client = createReconClient();
+
 const tally = (rows, get) => {
   const m = new Map();
   for (const r of rows) { const v = get(r) || '(blank)'; m.set(v, (m.get(v) || 0) + 1); }

@@ -186,7 +186,7 @@ const MINOR_REJECTED = {
   message: 'If this is unexpected, please contact our office.',
 };
 
-export const FLOWS = {
+const FLOWS = {
   major: {
     unitLabel: 'Major home modification',
     steps: ['In progress', 'Pending approval', 'Approved'],
@@ -223,13 +223,13 @@ export const FLOWS = {
 };
 
 /** Determine the business unit ('major' | 'minor') from the quote's AroFlo org/BU. */
-export function quoteBusinessUnit(q) {
+function quoteBusinessUnit(q) {
   const org = String(q?.org?.orgname ?? q?.businessUnit ?? '').toLowerCase();
   return org.includes('minor') ? 'minor' : 'major'; // MAJOR MODS is the default/dominant unit
 }
 
 /** Read the quote substatus text, handling AroFlo's nested object and the mock string. */
-export function quoteSubstatus(q) {
+function quoteSubstatus(q) {
   const s = q?.substatus;
   if (!s) return '';
   return typeof s === 'string' ? s : s.substatus || '';
@@ -262,17 +262,17 @@ export function deriveStatus(quoteStatus, substatus = '', unit = 'major') {
 }
 
 /** Read the task type across the two AroFlo response shapes seen in production. */
-export function taskType(task) {
+function taskType(task) {
   return task?.tasktype || task?.tasktasktype?.tasktype || '';
 }
 
 /** Whether the task is a custom install, for customer-safe booking wording. */
-export function isCustomInstall(task) {
+function isCustomInstall(task) {
   return /\bcustom\b/i.test(taskType(task));
 }
 
 /** Whether AroFlo assigns this job to an external contractor workflow. */
-export function isExternalContractor(task) {
+function isExternalContractor(task) {
   return /\bexternal contractor\b/i.test(taskType(task));
 }
 
@@ -325,7 +325,7 @@ export function hasCompletedSiteVisit(schedules, now = new Date()) {
 }
 
 /** The reviewed booking message for a job that has not yet been booked. */
-export function bookingToBeArrangedMessage(task, hasSiteVisit = false) {
+function bookingToBeArrangedMessage(task, hasSiteVisit = false) {
   if (hasSiteVisit) {
     return 'Your quote has been approved. We’ve been to site and taken the custom measures. Our scheduler will be in touch to book the installation.';
   }
@@ -376,6 +376,10 @@ export function deriveJobStatus(
     };
   }
 
+  return approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps);
+}
+
+function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
   const taskState = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
   const taskSub = taskSubstatus(task).trim().toLowerCase();
   const base = { ...quote, taskStatus: task?.status || task?.taskstatus || '', taskSubstatus: taskSubstatus(task) };
@@ -431,6 +435,10 @@ export function deriveJobStatus(
     };
   }
 
+  return approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskState, taskSub });
+}
+
+function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskState, taskSub }) {
   // External-contractor jobs have a separate booking process. Do not show the
   // internal scheduler wording or a generic SLA for these jobs; the reviewed
   // customer-facing lead time below is the only commitment we make.
@@ -631,6 +639,49 @@ export class QuoteService {
     };
   }
 
+  async #identityMatches(quotes, clientName, postcode, loadRelevantTask) {
+    const hasName = String(clientName ?? '').trim() !== '';
+    const hasPostcode = String(postcode ?? '').trim() !== '';
+    if (this.cfg.jobNumberOnly || (!hasName && !hasPostcode)) return true;
+    let location = null;
+    const relevantTask = await loadRelevantTask();
+    const locationId = taskLocationId(relevantTask);
+    if (locationId) {
+      const locationsResp = await this.client.get({
+        zone: 'Locations',
+        where: [`and|locationid|=|${locationId}`],
+      });
+      location = (locationsResp.zoneResponse.locations ?? [])[0] ?? null;
+    }
+
+    // Each optional identity field must match the same record. When a physical
+    // location has a SiteContact, that is the authoritative customer name; quote
+    // contacts are funder/case-manager details on some jobs and remain a fallback
+    // only for records without a SiteContact.
+    const quoteMatched = quotes.some((q) =>
+      suppliedIdentityMatches(
+        clientName,
+        postcode,
+        (value) => clientNameMatches(value, q),
+        (value) => postcodeMatches(value, q),
+      )
+    );
+    const hasSiteContact = !!locationSiteContactName(location).trim();
+    // Postcode-only checks use the physical address even without a SiteContact.
+    // Fall back to the quote if that address has no postcode. Name checks retain
+    // the same-record rule and existing SiteContact precedence.
+    const useLocation = hasName
+      ? hasSiteContact
+      : !!normalisePostcode(location?.postcode ?? location?.address?.postcode ?? location?.postCode);
+    const locationMatched = useLocation && suppliedIdentityMatches(
+      clientName,
+      postcode,
+      (value) => locationContactMatches(value, location),
+      (value) => locationPostcodeMatches(value, location),
+    );
+    return useLocation ? locationMatched : quoteMatched;
+  }
+
   async #lookupLive(job, clientName, postcode) {
     // Quotes carry the status and legacy contact/address fields. For a supplied
     // resident name, the linked task location is the authoritative AroFlo source.
@@ -643,8 +694,6 @@ export class QuoteService {
       .sort((a, b) => quoteCreatedTs(b) - quoteCreatedTs(a)); // newest first, deterministic
     if (quotes.length === 0) return { outcome: 'notfound' };
 
-    const hasName = String(clientName ?? '').trim() !== '';
-    const hasPostcode = String(postcode ?? '').trim() !== '';
     const hasApprovedQuote = quotes.some((q) => String(q.status || '').trim().toLowerCase() === 'approved');
     let tasks = null;
     let task = null;
@@ -664,46 +713,8 @@ export class QuoteService {
       return task;
     };
 
-    let location = null;
-    if (!this.cfg.jobNumberOnly && (hasName || hasPostcode)) {
-      const relevantTask = await loadRelevantTask();
-      const locationId = taskLocationId(relevantTask);
-      if (locationId) {
-        const locationsResp = await this.client.get({
-          zone: 'Locations',
-          where: [`and|locationid|=|${locationId}`],
-        });
-        location = (locationsResp.zoneResponse.locations ?? [])[0] ?? null;
-      }
-    }
-
-    // Each optional identity field must match the same record. When a physical
-    // location has a SiteContact, that is the authoritative customer name; quote
-    // contacts are funder/case-manager details on some jobs and remain a fallback
-    // only for records without a SiteContact.
-    if (!this.cfg.jobNumberOnly && (hasName || hasPostcode)) {
-      const quoteMatched = quotes.some((q) =>
-        suppliedIdentityMatches(
-          clientName,
-          postcode,
-          (value) => clientNameMatches(value, q),
-          (value) => postcodeMatches(value, q),
-        )
-      );
-      const hasSiteContact = !!locationSiteContactName(location).trim();
-      // Postcode-only checks use the physical address even without a SiteContact.
-      // Fall back to the quote if that address has no postcode. Name checks retain
-      // the same-record rule and existing SiteContact precedence.
-      const useLocation = hasName
-        ? hasSiteContact
-        : !!normalisePostcode(location?.postcode ?? location?.address?.postcode ?? location?.postCode);
-      const locationMatched = useLocation && suppliedIdentityMatches(
-        clientName,
-        postcode,
-        (value) => locationContactMatches(value, location),
-        (value) => locationPostcodeMatches(value, location),
-      );
-      if (!(useLocation ? locationMatched : quoteMatched)) return { outcome: 'mismatch' };
+    if (!await this.#identityMatches(quotes, clientName, postcode, loadRelevantTask)) {
+      return { outcome: 'mismatch' };
     }
 
     const hasNonFinalQuote = quotes.some((q) => {

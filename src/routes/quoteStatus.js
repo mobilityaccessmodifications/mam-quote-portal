@@ -24,7 +24,7 @@ export function createQuoteRouter(cfg = config) {
     : "We couldn't find a quote matching those details. " +
       'Please double-check your job number, name or post code, or call our office on (03) 9350 4400.';
 
-  // Both "not found" and "wrong details" do exactly one Quotes call, but we still pad
+  // Lookups can make different numbers of API calls. We pad
   // every negative response up to a floor (+ random jitter) so absolute response latency
   // can't be used to probe for valid job numbers. The rate limiter is the hard control;
   // this padding is defence in depth.
@@ -46,14 +46,7 @@ export function createQuoteRouter(cfg = config) {
     const clientName = String(req.body?.clientName ?? '').trim();
     const postcode = String(req.body?.postcode ?? '').trim();
 
-    // --- Input validation ---
-    const hasName = clientName !== '';
-    const hasPostcode = postcode !== '';
-    const inputInvalid = cfg.jobNumberOnly
-      ? !isValidJobNumber(jobNumber)
-      : !isValidJobNumber(jobNumber) ||
-        (hasName && !isValidName(clientName)) ||
-        (hasPostcode && !isValidPostcode(postcode));
+    const inputInvalid = invalidLookupInput({ jobNumber, clientName, postcode }, cfg.jobNumberOnly);
     if (inputInvalid) {
       return res.status(400).json({
         ok: false,
@@ -78,30 +71,7 @@ export function createQuoteRouter(cfg = config) {
     try {
       const result = await service.lookup(jobNumber, clientName, postcode);
 
-      let payload;
-      if (result.outcome === 'verified') {
-        payload = {
-          ok: true,
-          found: true,
-          verified: true,
-          jobNumber,
-          locationName: result.locationName || null,
-          quotes: result.quotes,
-        };
-      } else {
-        // Both "notfound" and "mismatch" return the SAME generic response in
-        // production so the portal can't be used to enumerate job numbers.
-        payload = {
-          ok: true,
-          found: false,
-          verified: false,
-          message: cfg.verboseClientErrors
-            ? (result.outcome === 'notfound'
-                ? 'No quote was found for that job number.'
-                : 'The name / post code do not match the contact we have on file for this job.')
-            : GENERIC_FAIL,
-        };
-      }
+      const payload = lookupPayload(result, jobNumber, cfg.verboseClientErrors, GENERIC_FAIL);
 
       cache.set(cacheKey, payload);
       if (!payload.verified && !cfg.jobNumberOnly) await padNegative(startedAt);
@@ -122,4 +92,37 @@ export function createQuoteRouter(cfg = config) {
   });
 
   return router;
+}
+
+function invalidLookupInput({ jobNumber, clientName, postcode }, jobNumberOnly) {
+  if (!isValidJobNumber(jobNumber)) return true;
+  if (jobNumberOnly) return false;
+  return (clientName !== '' && !isValidName(clientName)) ||
+    (postcode !== '' && !isValidPostcode(postcode));
+}
+
+function lookupPayload(result, jobNumber, verboseClientErrors, genericFail) {
+  if (result.outcome === 'verified') {
+    return {
+      ok: true,
+      found: true,
+      verified: true,
+      jobNumber,
+      locationName: result.locationName || null,
+      quotes: result.quotes,
+    };
+  } else {
+    // Both "notfound" and "mismatch" return the SAME generic response in
+    // production so the portal can't be used to enumerate job numbers.
+    return {
+      ok: true,
+      found: false,
+      verified: false,
+      message: verboseClientErrors
+        ? (result.outcome === 'notfound'
+            ? 'No quote was found for that job number.'
+            : 'The name / post code do not match the contact we have on file for this job.')
+        : genericFail,
+    };
+  }
 }
