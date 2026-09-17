@@ -1,0 +1,12 @@
+{
+  "entry": [
+    "api/index.js",
+    "public/app.js",
+    "public/styles.css",
+    "scripts/analyze-aroflo.js",
+    "scripts/analyze-aroflo-2.js",
+    "scripts/recon-metrics.js",
+    "scripts/recon-shapes.js"
+  ],
+  "ignoreUnresolvedImports": ["./aroflo-metrics.json"]
+}

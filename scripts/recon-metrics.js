@@ -5,18 +5,12 @@
  * Writes scripts/aroflo-metrics.json (aggregates only) for charting / verification.
  * Reference "today" is fixed to the session date so ageing is deterministic.
  */
+import { createReconClient, sleep, firstArray } from './recon-helpers.js';
 import { writeFileSync } from 'node:fs';
-import config from '../src/config.js';
-import { ArofloClient } from '../src/aroflo/client.js';
 
 const REF = Date.parse('2026-06-24'); // session date, per context — do not use wall clock
-const client = new ArofloClient({
-  baseUrl: config.aroflo.baseUrl, secretKey: config.aroflo.secretKey,
-  uEncoded: config.aroflo.uEncoded, pEncoded: config.aroflo.pEncoded,
-  orgEncoded: config.aroflo.orgEncoded, hostIp: config.aroflo.hostIp,
-});
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const firstArray = (zr) => { for (const v of Object.values(zr || {})) if (Array.isArray(v)) return v; return []; };
+const client = createReconClient();
+
 const day = (s) => Date.parse(String(s || '').replace(/\//g, '-').slice(0, 10));
 const tally = (rows, get) => {
   const m = new Map();

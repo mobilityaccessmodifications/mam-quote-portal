@@ -3,16 +3,10 @@
  *   node scripts/recon-shapes.js
  * GET-only. No writes. Redacts nothing structural, but prints no obvious PII values.
  */
-import config from '../src/config.js';
-import { ArofloClient } from '../src/aroflo/client.js';
+import { createReconClient, sleep, firstArray } from './recon-helpers.js';
 
-const client = new ArofloClient({
-  baseUrl: config.aroflo.baseUrl, secretKey: config.aroflo.secretKey,
-  uEncoded: config.aroflo.uEncoded, pEncoded: config.aroflo.pEncoded,
-  orgEncoded: config.aroflo.orgEncoded, hostIp: config.aroflo.hostIp,
-});
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const firstArray = (zr) => { for (const v of Object.values(zr || {})) if (Array.isArray(v)) return v; return []; };
+const client = createReconClient();
+
 function paths(obj, p = '', d = 0, out = new Set()) {
   if (d > 2 || obj == null || typeof obj !== 'object') return out;
   for (const [k, v] of Object.entries(obj)) {

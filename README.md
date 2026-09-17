@@ -183,3 +183,14 @@ test/signature.test.js        signing regression tests
 ## 7. Security reminder
 The credentials shared during development should be treated as exposed and
 **rotated in AroFlo** before launch (re-generate the API key + secret).
+
+### Static analysis
+
+Run `npx --yes fallow@3.26.0` after installing dependencies. `.fallowrc.json`
+records the Vercel handler, browser assets, and manually invoked diagnostic
+scripts as entry points. The single ignored unresolved path,
+`./aroflo-metrics.json`, is the output of `writeFileSync(new URL(...))`, not
+an input dependency. Do not commit that generated data.
+
+Fallow's complexity findings identify refactoring candidates; coverage-based
+risk scores are estimates unless a real coverage report is supplied.

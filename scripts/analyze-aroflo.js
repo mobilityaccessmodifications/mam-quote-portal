@@ -8,19 +8,10 @@
  * the client only supports GET. Output is a compact summary, no secrets, no PII
  * beyond what is needed to understand the data shape (names are redacted).
  */
-import config from '../src/config.js';
-import { ArofloClient, ArofloError } from '../src/aroflo/client.js';
+import { createReconClient, sleep } from './recon-helpers.js';
+import { ArofloError } from '../src/aroflo/client.js';
 
-const client = new ArofloClient({
-  baseUrl: config.aroflo.baseUrl,
-  secretKey: config.aroflo.secretKey,
-  uEncoded: config.aroflo.uEncoded,
-  pEncoded: config.aroflo.pEncoded,
-  orgEncoded: config.aroflo.orgEncoded,
-  hostIp: config.aroflo.hostIp,
-});
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const client = createReconClient();
 
 /** Get a zone's first record-array out of the zoneResponse, whatever it's keyed as. */
 function firstArray(zoneResponse) {
