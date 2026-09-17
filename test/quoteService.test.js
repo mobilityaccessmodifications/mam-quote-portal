@@ -5,6 +5,7 @@ import {
   sanitiseQuote,
   deriveStatus,
   deriveJobStatus,
+  minorTaskPortalWording,
   quoteCreatedTs,
   quoteContactName,
   taskSubstatus,
@@ -136,6 +137,29 @@ test('deriveJobStatus maps the team-approved public workflow', () => {
   }).message, 'Your quote has been approved. Our scheduler will be in touch to arrange a booking.');
 });
 
+test('Minor Mods uses the approved workbook wording for every configured task state', () => {
+  const scenarios = [
+    ['Not Started', '', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+    ['Not Started', 'To be booked', 'Quote has been approved. Our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+    ['Not Started', 'Pre-payment required to proceed', 'Quote is awaiting a payment/deposit.'],
+    ['Not Started', 'Booked', 'Works have been booked in with the client.'],
+    ['In Progress', 'To be booked', 'Works are underway. We have all the items ready and our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+    ['Pending', 'OT Approval Requested', 'Site visit completed — we are currently awaiting OT approval before proceeding further.'],
+    ['Pending', 'To Be Manufactured', 'We have taken measurements for custom manufactured items. They are currently being manufactured. We will be in touch with the client as soon as the job is ready for installation.'],
+    ['Pending', 'Client Confirmation Requested', 'we are currently awaiting confirmation from the client before proceeding further.'],
+    ['Pending', 'Complaint  Active', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+    ['Completed', 'CoC Requested', 'Job is complete'],
+    ['Completed', 'Refund Needed  Amount TBC', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+    ['Archived', '', 'Job complete'],
+  ];
+
+  for (const [status, substatus, wording] of scenarios) {
+    const task = { status, substatus: { substatus } };
+    assert.equal(minorTaskPortalWording(task), wording);
+    assert.equal(deriveJobStatus('Approved', '', 'minor', task).message, wording);
+  }
+});
+
 test('minor-mod visit logic uses a completed visible appointment and task type', () => {
   const customTask = { status: 'Pending', tasktype: 'Custom Install', substatus: { substatus: 'To Be Manufactured' } };
   const stockTask = { status: 'Pending', tasktype: 'Stock Install', substatus: { substatus: 'Measures Printed' } };
@@ -155,11 +179,11 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
   ], new Date('2026-08-14T01:00:00Z')), false, 'a same-day future appointment is not complete');
   assert.equal(
     deriveJobStatus('Approved', '', 'minor', customTask, { hasSiteVisit: true }).message,
-    'Your quote has been approved. We’ve been to site and taken the custom measures. Our scheduler will be in touch to book the installation.',
+    'We have taken measurements for custom manufactured items. They are currently being manufactured. We will be in touch with the client as soon as the job is ready for installation.',
   );
   assert.equal(
     deriveJobStatus('Approved', '', 'minor', stockTask, { hasSiteVisit: false }).message,
-    'Your quote has been approved. Our scheduler will be in touch to book the installation.',
+    'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.',
   );
   const visitedQuoteUpdate = deriveJobStatus('In Progress', '', 'minor', customTask, { hasSiteVisit: true });
   assert.equal(visitedQuoteUpdate.label, 'Site visit completed');
@@ -170,7 +194,7 @@ test('minor-mod visit logic uses a completed visible appointment and task type',
     substatus: { substatus: 'Increase Approval Requested' },
   }, { hasSiteVisit: true });
   assert.equal(approvedQuoteUpdate.label, 'Site visit completed');
-  assert.equal(approvedQuoteUpdate.message, '');
+  assert.equal(approvedQuoteUpdate.message, 'Site visit completed — awaiting approval');
 });
 
 test('scheduler timeframe is only added for the required booking action', () => {
@@ -204,11 +228,11 @@ test('scheduler timeframe is only added for the required booking action', () => 
   );
   assert.equal(
     sanitiseQuote(minorApproved, { task: customTask, schedulerSla: sla }).schedulerTimeframe,
-    'within 3 business days',
+    undefined,
   );
   assert.equal(
     sanitiseQuote(minorApproved, { task: stockTask, schedulerSla: sla }).schedulerTimeframe,
-    'within 7 business days',
+    undefined,
   );
   assert.equal(
     sanitiseQuote(approved, {

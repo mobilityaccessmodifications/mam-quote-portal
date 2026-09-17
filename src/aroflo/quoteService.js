@@ -339,6 +339,73 @@ function bookingToBeArrangedMessage(task, hasSiteVisit = false) {
 }
 
 /**
+ * Team-approved Minor Mods portal copy, keyed by AroFlo Task status/substatus.
+ * The strings intentionally match the reviewed workbook verbatim.
+ */
+const MINOR_TASK_PORTAL_WORDING = new Map([
+  ['not started\u0000', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['not started\u0000to be booked', 'Quote has been approved. Our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+  ['not started\u0000pre payment required to proceed', 'Quote is awaiting a payment/deposit.'],
+  ['not started\u0000booked', 'Works have been booked in with the client.'],
+  ['in progress\u0000', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['in progress\u0000to be booked', 'Works are underway. We have all the items ready and our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+  ['in progress\u0000extension requested', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['in progress\u0000booked', 'Works have been booked in with the client for completion.'],
+  ['pending\u0000measure approved', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000invoice submitted', 'Quote is awaiting a payment/deposit.'],
+  ['pending\u0000requested new approval', 'Awaiting new approval. Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['pending\u0000measures complete', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000measures printed', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000ot approval requested', 'Site visit completed — we are currently awaiting OT approval before proceeding further.'],
+  ['pending\u0000trade review needed', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000to be manufactured', 'We have taken measurements for custom manufactured items. They are currently being manufactured. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000client confirmation requested', 'we are currently awaiting confirmation from the client before proceeding further.'],
+  ['pending\u0000external contractor supplier', 'Quote has been approved. Our team will be in touch with the client to confirm an appointment as soon as we have availability in the area.'],
+  ['pending\u0000merged task', 'Quote has been approved and works are underway. Our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+  ['pending\u0000dva approval required', 'Quote has been approved. Our scheduling team will be in touch with the client to confirm an appointment as soon as we have a tradesman available in the area.'],
+  ['pending\u0000on hold', 'Works are currently on hold. Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['pending\u0000awaiting deposit payment', 'Quote is awaiting a payment/deposit.'],
+  ['pending\u0000awaiting dva items', 'We are awaiting delivery of items to organize installation.'],
+  ['pending\u0000further action needed', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['pending\u0000complaint active', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['pending\u0000increase approval requested', 'Site visit completed — awaiting approval'],
+  ['completed\u0000', 'Job complete'],
+  ['completed\u0000invoice to be approved', 'Job complete'],
+  ['completed\u0000invoiced awaiting contractor invoice', 'Job complete'],
+  ['completed\u0000completion email sent ready to invoice', 'Job complete'],
+  ['completed\u0000awaiting scheduler clarification', 'Job complete'],
+  ['completed\u0000coc requested', 'Job is complete'],
+  ['completed\u0000coc received ready to invoice', 'Job complete'],
+  ['completed\u0000refund needed amount tbc', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['completed\u0000refund approved process', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['completed\u0000dva ready to invoice', 'Job complete'],
+  ['completed\u0000outstanding invoice', 'Job complete'],
+  ['archived\u0000', 'Job complete'],
+]);
+
+function minorTaskPortalKey(task) {
+  const status = normaliseName(task?.status || task?.taskstatus || '');
+  const substatus = normaliseName(taskSubstatus(task));
+  return `${status}\u0000${substatus}`;
+}
+
+export function minorTaskPortalWording(task) {
+  return MINOR_TASK_PORTAL_WORDING.get(minorTaskPortalKey(task)) || '';
+}
+
+function minorTaskPortalLabel(task) {
+  const status = normaliseName(task?.status || task?.taskstatus || '');
+  const substatus = normaliseName(taskSubstatus(task));
+  if (status === 'completed' || status === 'archived') return 'Job complete';
+  if (substatus === 'booked') return 'Booked';
+  if (substatus.includes('on hold')) return 'Approved — on hold';
+  if (/measure|approval requested|trade review/.test(substatus)) return 'Site visit completed';
+  if (substatus === 'to be manufactured') return 'In progress — manufacturing';
+  if (status === 'in progress') return 'In progress';
+  return 'Approved';
+}
+
+/**
  * Apply the team's agreed post-approval customer states using the live Task.
  * Unrecognised task substatuses deliberately fall back to the scheduler message.
  */
@@ -383,6 +450,22 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
   const taskState = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
   const taskSub = taskSubstatus(task).trim().toLowerCase();
   const base = { ...quote, taskStatus: task?.status || task?.taskstatus || '', taskSubstatus: taskSubstatus(task) };
+
+  if (unit === 'minor') {
+    const reviewedMessage = minorTaskPortalWording(task);
+    if (reviewedMessage) {
+      const complete = taskState === 'completed' || taskState === 'archived';
+      const booked = taskSub === 'booked';
+      return {
+        ...base,
+        steps: jobSteps,
+        step: complete ? 4 : booked ? 3 : 2,
+        label: minorTaskPortalLabel(task),
+        message: reviewedMessage,
+        tone: complete ? 'complete' : booked ? 'booked' : taskSub.includes('hold') ? 'hold' : 'approved',
+      };
+    }
+  }
 
   if (taskState === 'completed' || taskSub === 'completed' || taskSub === 'complete') {
     return {
