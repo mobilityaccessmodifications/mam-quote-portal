@@ -111,6 +111,11 @@ export function taskSubstatus(task) {
   return typeof value === 'string' ? value : value.substatus || '';
 }
 
+/** Keep booking recognition consistent between status display and schedule retrieval. */
+function isBookedSubstatus(substatus) {
+  return substatus === 'booked' || substatus.startsWith('booked in');
+}
+
 /** Prefer AroFlo's location label; fall back to the task/quote name. */
 export function locationNameFor(task, quote) {
   return task?.tasklocation?.locationname || task?.location?.locationname ||
@@ -431,8 +436,7 @@ export function deriveJobStatus(
   // customer-facing lead time below is the only commitment we make.
   if (
     isExternalContractor(task) &&
-    taskSub !== 'booked' &&
-    !taskSub.startsWith('booked in')
+    !isBookedSubstatus(taskSub)
   ) {
     return {
       ...base,
@@ -489,7 +493,7 @@ export function deriveJobStatus(
     };
   }
 
-  if (taskSub === 'booked' || taskSub.includes('booked in')) {
+  if (isBookedSubstatus(taskSub)) {
     return {
       ...base,
       steps: jobSteps,
@@ -648,7 +652,7 @@ export class QuoteService {
     let hasSiteVisit = false;
 
     // Load the task once when it is needed either for post-approval status or to
-    // resolve the physical job location for a supplied resident name.
+    // resolve the physical job location for supplied identity details.
     const loadRelevantTask = async () => {
       if (tasks !== null) return task;
       const tasksResp = await this.client.get({
@@ -661,7 +665,7 @@ export class QuoteService {
     };
 
     let location = null;
-    if (!this.cfg.jobNumberOnly && hasName) {
+    if (!this.cfg.jobNumberOnly && (hasName || hasPostcode)) {
       const relevantTask = await loadRelevantTask();
       const locationId = taskLocationId(relevantTask);
       if (locationId) {
@@ -687,13 +691,19 @@ export class QuoteService {
         )
       );
       const hasSiteContact = !!locationSiteContactName(location).trim();
-      const locationMatched = hasSiteContact && suppliedIdentityMatches(
+      // Postcode-only checks use the physical address even without a SiteContact.
+      // Fall back to the quote if that address has no postcode. Name checks retain
+      // the same-record rule and existing SiteContact precedence.
+      const useLocation = hasName
+        ? hasSiteContact
+        : !!normalisePostcode(location?.postcode ?? location?.address?.postcode ?? location?.postCode);
+      const locationMatched = useLocation && suppliedIdentityMatches(
         clientName,
         postcode,
         (value) => locationContactMatches(value, location),
         (value) => locationPostcodeMatches(value, location),
       );
-      if (!(hasSiteContact ? locationMatched : quoteMatched)) return { outcome: 'mismatch' };
+      if (!(useLocation ? locationMatched : quoteMatched)) return { outcome: 'mismatch' };
     }
 
     const hasNonFinalQuote = quotes.some((q) => {
@@ -707,7 +717,7 @@ export class QuoteService {
       const taskSub = taskSubstatus(task).trim().toLowerCase();
       const needsScheduleHistory = task && (
         hasNonFinalQuote ||
-        taskSub === 'booked' ||
+        isBookedSubstatus(taskSub) ||
         taskSub.includes('increase approval requested') ||
         /measures? (complete|printed)|to be manufactured/i.test(taskSub)
       );
@@ -723,7 +733,7 @@ export class QuoteService {
           .filter((schedule) => schedule?.scheduletype?.typeid === task.taskid)
           .filter((schedule) => String(schedule.ishidden).toLowerCase() !== 'true')
           .sort((a, b) => String(a.startdatetime).localeCompare(String(b.startdatetime)));
-        if (taskSub === 'booked') booking = sanitiseBooking(selectRelevantSchedule(schedules));
+        if (isBookedSubstatus(taskSub)) booking = sanitiseBooking(selectRelevantSchedule(schedules));
         hasSiteVisit = hasCompletedSiteVisit(schedules);
       }
     }
@@ -759,7 +769,7 @@ export function selectRelevantTask(tasks) {
 /** Prefer the next/current booking; fall back to the most recent past booking. */
 export function selectRelevantSchedule(schedules, now = new Date()) {
   if (!schedules?.length) return null;
-  const today = now.toISOString().slice(0, 10);
+  const today = dateKeyInMelbourne(now);
   const scheduleDate = (schedule) =>
     String(schedule.startdate || schedule.startdatetime || '').slice(0, 10).replace(/\//g, '-');
   return schedules.find((schedule) => scheduleDate(schedule) >= today) ||

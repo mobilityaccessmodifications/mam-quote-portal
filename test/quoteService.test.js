@@ -482,3 +482,73 @@ test('live lookup verifies the resident SiteContact without exposing it', async 
   assert.equal(wrongPostcode.outcome, 'mismatch');
   assert.deepEqual(calls.map((call) => call.zone), ['Quotes', 'Tasks', 'Locations']);
 });
+
+// Synthetic records only: these regression tests never contact AroFlo.
+function syntheticLookupService({ substatus = '', location = null, locationId = 'synthetic-location' } = {}) {
+  const service = new QuoteService({ mockMode: false, jobNumberOnly: false, aroflo: {} });
+  const calls = [];
+  service.client = {
+    async get(query) {
+      calls.push(query.zone);
+      const responses = {
+        Quotes: { quotes: [{ status: 'Approved', contactname: 'Synthetic Funder', address: { postcode: '3000' } }] },
+        Tasks: { tasks: [{ taskid: 'synthetic-task', status: 'In Progress', substatus,
+          tasklocation: { locationid: locationId } }] },
+        Locations: { locations: location ? [location] : [] },
+        Schedules: { schedules: [{ scheduletype: { typeid: 'synthetic-task' },
+          startdatetime: '2099-01-01 09:00:00', enddatetime: '2099-01-01 10:00:00' }] },
+      };
+      assert.ok(responses[query.zone], 'unexpected API zone');
+      return { zoneResponse: responses[query.zone] };
+    },
+  };
+  return { service, calls };
+}
+
+test('all supported booked statuses return schedule details', async () => {
+  for (const substatus of ['Booked', 'Booked in', 'Booked in for installation']) {
+    const { service, calls } = syntheticLookupService({ substatus });
+    const result = await service.lookup('999999999999', '', '');
+    assert.equal(result.quotes[0].statusLabel, 'Booked');
+    assert.equal(result.quotes[0].booking?.date, '2099-01-01');
+    assert.deepEqual(calls, ['Quotes', 'Tasks', 'Schedules']);
+  }
+  const { service, calls } = syntheticLookupService({ substatus: 'To be booked in' });
+  const result = await service.lookup('999999999999', '', '');
+  assert.equal(result.quotes[0].booking, undefined);
+  assert.equal(calls.includes('Schedules'), false);
+});
+
+test('postcode-only verification uses the physical location, even without SiteContact', async () => {
+  for (const SiteContact of ['Synthetic Resident', '']) {
+    const { service } = syntheticLookupService({ location: { SiteContact, postcode: '3999' } });
+    assert.equal((await service.lookup('999999999999', '', '3999')).outcome, 'verified');
+    assert.equal((await service.lookup('999999999999', '', '3000')).outcome, 'mismatch');
+    if (SiteContact) {
+      assert.equal((await service.lookup('999999999999', SiteContact, '3999')).outcome, 'verified');
+      assert.equal((await service.lookup('999999999999', 'Synthetic Funder', '3999')).outcome, 'mismatch');
+    }
+  }
+});
+
+test('postcode-only verification falls back to quote when location postcode is unavailable', async () => {
+  for (const options of [{ locationId: '' }, { location: null }, { location: { SiteContact: 'Synthetic Resident' } }]) {
+    const { service } = syntheticLookupService(options);
+    assert.equal((await service.lookup('999999999999', '', '3000')).outcome, 'verified');
+    assert.equal((await service.lookup('999999999999', '', '3999')).outcome, 'mismatch');
+  }
+});
+
+test('schedule selection uses Melbourne date across standard time and daylight saving', () => {
+  for (const [now, yesterday, today, tomorrow] of [
+    ['2026-09-16T23:00:00Z', '2026-09-16', '2026-09-17', '2026-09-18'],
+    ['2026-01-16T13:30:00Z', '2026-01-16', '2026-01-17', '2026-01-18'],
+  ]) {
+    const past = { startdatetime: `${yesterday} 09:00:00` };
+    const current = { startdatetime: `${today} 15:00:00` };
+    const future = { startdatetime: `${tomorrow} 09:00:00` };
+    assert.equal(selectRelevantSchedule([past, future], new Date(now)), future);
+    assert.equal(selectRelevantSchedule([past, current, future], new Date(now)), current);
+    assert.equal(selectRelevantSchedule([past], new Date(now)), past);
+  }
+});
