@@ -87,8 +87,8 @@ dates and reference).
 - Job-not-found and name/postcode mismatch return the **same** generic message in
   production (`VERBOSE_CLIENT_ERRORS=false`) so the portal can't be used to
   guess valid job numbers.
-- Per-IP rate limiting on `/api/*` and a short response cache to respect
-  AroFlo's **2000 calls/day** limit.
+- Per-IP rate limiting on `/api/*`, shared in-flight reads and a bounded AroFlo
+  resource cache reduce consumption of the provider's daily quotas.
 - Baseline security headers; request body capped at 8 KB.
 
 ---
@@ -99,7 +99,9 @@ dates and reference).
 |---|---|
 | `MOCK_MODE` | `true` = sample data, `false` = live AroFlo |
 | `VERBOSE_CLIENT_ERRORS` | `true` only for testing (leaks job existence) |
-| `CACHE_TTL_SECONDS` | cache window for lookups |
+| `CACHE_TTL_SECONDS` | AroFlo resource freshness window, default `120` seconds; `0` disables completed-result caching |
+| `EMPTY_CACHE_TTL_SECONDS` | empty resource cache window, default `15` seconds, capped by `CACHE_TTL_SECONDS` |
+| `AROFLO_METRICS_ENABLED` | emit sanitized lookup/usage metrics to server logs, default `true` |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_SECONDS` | abuse protection |
 | `PORT` | server port |
 | `TRUST_PROXY` | `false` for direct exposure; `1`/CIDR only when behind a known proxy/CDN. **`true` is rejected** |
@@ -146,7 +148,7 @@ dates and reference).
   do **not** commit `.env`.
 - **Multi-instance:** the in-memory rate limiter/cache are per-process. For more
   than one instance, back them with Redis (`src/middleware/rateLimit.js`,
-  `src/util/cache.js` are the only files to change).
+  `src/util/cache.js` and `src/aroflo/client.js` need a shared implementation).
 - **Name matching** uses the job location's AroFlo `SiteContact` when available,
   with the quote contact/client organisation as a fallback for legacy records.
 - **Secrets in the hand-off:** do **not** include `.env` in any zip/share you send.
@@ -194,3 +196,55 @@ an input dependency. Do not commit that generated data.
 
 Fallow's complexity findings identify refactoring candidates; coverage-based
 risk scores are estimates unless a real coverage report is supplied.
+
+### AroFlo call efficiency and monitoring
+
+The portal caches successful AroFlo GET results, keyed by the exact query within
+one credential-bound client, instead of caching public authorization responses.
+Quotes, tasks, locations and schedules are reused across lookups with different
+identity input. Every supplied name/postcode is still validated for every request.
+Data can be up to `CACHE_TTL_SECONDS` old, as with the previous lookup cache, but
+there is no second response-cache lifetime extending it. Expired data is never
+served as an error fallback. Empty collections have the shorter TTL above.
+
+Concurrent identical reads share one request, including when completed caching
+is disabled. Rejections are never cached. Storage is bounded to 256 entries and
+8 MiB of serialized key/value data per client (actual JS heap overhead is extra);
+expired records are purged on reads/writes and least-recently used entries are
+evicted. At most 32 distinct reads may be outstanding. The admission queue uses
+actual dispatch times to avoid bursts after delayed timers. All clients, caches,
+queues and counters remain process-local and reset on instance restart.
+
+Reviewed Minor Mods status wording does not require fetching historical
+appointments when every quote is approved and the status is not booked. Booked,
+mixed and unapproved quote lookups retain their schedule queries.
+
+`[AroFlo usage]` server log entries contain lookup duration, cumulative upstream
+request/error/throttle counts, cache hits, coalesced reads, cumulative upstream
+duration and the latest observed quota headers with their observation timestamp.
+Missing/malformed headers mean unknown, not zero. These counters are lifetime
+counters for one client instance, **not** an account-wide daily total; concurrent
+lookups overlap. Use provider remaining-quota headers to assess budget, and log
+aggregation across instances to assess traffic. No query keys, job numbers,
+names, postcodes, credentials, signatures or provider response bodies are logged.
+No usage metrics are exposed through the public health or quote endpoints.
+
+An HTTP 429 or AroFlo JSON status 6/429 starts a client-wide cooldown using
+`Retry-After` (or 60 seconds when unavailable). JSON status 7 pauses fresh reads
+until the next Melbourne midnight, including DST. Queued requests recheck the
+cooldown before dispatch. Fresh cached data can still be used with normal
+identity validation. No automatic retry spends additional API budget. The portal
+returns HTTP 503 and `Retry-After` when a lookup needs unavailable fresh data.
+
+Official API reference: <https://apidocs.aroflo.com/>. The Limits section documents
+120 requests/minute, 3/second, 2,000 ordinary calls/day and a separate 20,000/day
+single-zone-ID quota. The LastUpdate zone is exempt from the daily quota. These
+limits are not all enforced globally by this process-local implementation.
+
+Follow-up infrastructure work: a company-scoped shared cache plus distributed
+admission control is required to deduplicate and rate-limit across Vercel
+instances. `Tasks join=location` must be checked for complete identity fields
+before removing Locations reads. LastUpdate coverage for quotes/schedules and
+record-ID discovery/invalidation must be validated before replacing bounded TTL
+refreshes. No polling worker, persistent customer-data store or new external
+service is provisioned by this change.
