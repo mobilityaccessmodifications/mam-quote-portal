@@ -18,7 +18,7 @@ import config from '../config.js';
  */
 
 /** Normalise a name/text value for tolerant comparison (lowercase, strip punctuation). */
-export function normaliseName(value) {
+function normaliseName(value) {
   return String(value || '')
     .toLowerCase()
     .replace(/['’`]/g, '') // drop apostrophes so O'Brien == OBrien
@@ -673,6 +673,8 @@ export class QuoteService {
           hostIp: cfg.aroflo.hostIp,
           accept: cfg.aroflo.accept,
           minRequestIntervalMs: cfg.aroflo.minRequestIntervalMs,
+          cacheTtlSeconds: cfg.cacheTtlSeconds ?? 120,
+          emptyCacheTtlSeconds: cfg.emptyCacheTtlSeconds ?? 15,
         });
   }
 
@@ -698,7 +700,17 @@ export class QuoteService {
     }
 
     if (this.cfg.mockMode) return this.#lookupMock(job, clientName, postcode);
-    return this.#lookupLive(job, clientName, postcode);
+    const startedAt = Date.now();
+    try { return await this.#lookupLive(job, clientName, postcode); }
+    finally {
+      if (this.cfg.aroflo.metricsEnabled && this.client.metrics) {
+        // Cumulative counters are process-local. Concurrent lookups can overlap;
+        // do not present their deltas as precise per-user API consumption.
+        console.info('[AroFlo usage]', JSON.stringify({
+          lookupDurationMs: Date.now() - startedAt, ...this.client.metrics,
+        }));
+      }
+    }
   }
 
   #lookupMock(job, clientName, postcode) {
@@ -809,11 +821,20 @@ export class QuoteService {
       await loadRelevantTask();
 
       const taskSub = taskSubstatus(task).trim().toLowerCase();
+      // Reviewed Minor Mods messages already encode these milestones. Avoid a
+      // schedule query when every quote's output is independent of visit history.
+      // Mixed/unapproved quotes and actual bookings still need their schedules.
+      const allUseReviewedWording = quotes.every((quote) =>
+        String(quote.status || '').trim().toLowerCase() === 'approved' &&
+        quoteBusinessUnit(quote) === 'minor' && !!minorTaskPortalWording(task)
+      );
       const needsScheduleHistory = task && (
-        hasNonFinalQuote ||
         isBookedSubstatus(taskSub) ||
-        taskSub.includes('increase approval requested') ||
-        /measures? (complete|printed)|to be manufactured/i.test(taskSub)
+        (!allUseReviewedWording && (
+          hasNonFinalQuote ||
+          taskSub.includes('increase approval requested') ||
+          /measures? (complete|printed)|to be manufactured/i.test(taskSub)
+        ))
       );
 
       if (needsScheduleHistory) {

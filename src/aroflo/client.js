@@ -1,4 +1,6 @@
 import { createHmac } from 'node:crypto';
+import { createTtlCache } from '../util/cache.js';
+import { readRateLimits, dailyResetSeconds, retryAfterSeconds } from './limits.js';
 
 /**
  * AroFlo API client.
@@ -36,9 +38,11 @@ export class ArofloClient {
    * @param {string} opts.pEncoded
    * @param {string} opts.orgEncoded
    * @param {string} [opts.hostIp]
- * @param {string} [opts.accept]
- * @param {number} [opts.timeoutMs]
- * @param {number} [opts.minRequestIntervalMs]
+   * @param {string} [opts.accept]
+   * @param {number} [opts.timeoutMs]
+   * @param {number} [opts.minRequestIntervalMs]
+   * @param {number} [opts.cacheTtlSeconds] Completed-result TTL; default 0 (disabled).
+   * @param {number} [opts.emptyCacheTtlSeconds] Empty-collection TTL; default 15.
  */
   constructor(opts) {
     this.baseUrl = opts.baseUrl || 'https://api.aroflo.com/';
@@ -55,6 +59,14 @@ export class ArofloClient {
       ? Math.max(0, opts.minRequestIntervalMs)
       : 600;
     this.nextRequestAt = 0;
+    this.slotQueue = Promise.resolve();
+    this.cooldownUntil = 0;
+    this.cacheTtlSeconds = opts.cacheTtlSeconds ?? 0; // recon scripts stay uncached
+    this.emptyCacheTtlSeconds = Math.min(this.cacheTtlSeconds, opts.emptyCacheTtlSeconds ?? 15);
+    this.cache = createTtlCache(this.cacheTtlSeconds);
+    this.inFlight = new Map();
+    this.metrics = { requests: 0, cacheHits: 0, coalesced: 0, errors: 0, throttled: 0,
+      durationMs: 0, rateLimits: {}, rateLimitsObservedAt: null };
   }
 
   /** Build the Authorization string. Each encoded credential is URI-encoded. */
@@ -111,18 +123,63 @@ export class ArofloClient {
    */
   async get(query) {
     const varString = ArofloClient.buildVarString(query);
-    await this.#waitForRequestSlot();
-    return this.#send('GET', varString);
+    const cached = this.cache.get(varString);
+    if (cached !== undefined) {
+      this.metrics.cacheHits++;
+      return cached;
+    }
+    if (this.inFlight.has(varString)) {
+      this.metrics.coalesced++;
+      return this.inFlight.get(varString);
+    }
+    // Bound the number of distinct outstanding queries as well as stored data.
+    if (this.inFlight.size >= 32) throw this.#throttled(1);
+    const pending = this.#getFresh(varString, query.zone);
+    this.inFlight.set(varString, pending);
+    try { return await pending; }
+    finally { this.inFlight.delete(varString); }
   }
 
-  /** Reserve an evenly spaced request slot, including for concurrent callers. */
+  #throttled(retryAfter) {
+    this.metrics.throttled++;
+    return new ArofloError('AroFlo is temporarily rate limited', { code: 'rate_limit', retryAfter });
+  }
+
+  #checkCooldown() {
+    if (this.cooldownUntil > Date.now()) {
+      throw this.#throttled(Math.ceil((this.cooldownUntil - Date.now()) / 1000));
+    }
+  }
+
+  async #getFresh(varString, zone) {
+    await this.#waitForRequestSlot();
+    const startedAt = Date.now();
+    this.metrics.requests++;
+    try {
+      const result = await this.#send('GET', varString);
+      const rows = result.zoneResponse?.[String(zone).toLowerCase()];
+      const ttl = Array.isArray(rows) && rows.length === 0 ? this.emptyCacheTtlSeconds : this.cacheTtlSeconds;
+      this.cache.set(varString, result, ttl);
+      return result;
+    } catch (error) {
+      this.metrics.errors++;
+      throw error;
+    } finally {
+      this.metrics.durationMs += Date.now() - startedAt;
+    }
+  }
+
+  /** Serialize admissions, not responses. Delayed timers must not release a burst. */
   async #waitForRequestSlot() {
-    if (this.minRequestIntervalMs <= 0) return;
-    const now = Date.now();
-    const requestAt = Math.max(now, this.nextRequestAt);
-    this.nextRequestAt = requestAt + this.minRequestIntervalMs;
-    const waitMs = requestAt - now;
-    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const admission = this.slotQueue.then(async () => {
+      this.#checkCooldown();
+      const waitMs = Math.max(0, this.nextRequestAt - Date.now());
+      if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+      this.#checkCooldown(); // another request may have returned a 429 while waiting
+      this.nextRequestAt = Date.now() + this.minRequestIntervalMs;
+    });
+    this.slotQueue = admission.catch(() => {});
+    return admission;
   }
 
   async #send(method, varString) {
@@ -149,8 +206,18 @@ export class ArofloClient {
     let text;
     try {
       response = await fetch(url, { method, headers, signal: controller.signal });
+      this.metrics.rateLimits = readRateLimits(response.headers);
+      this.metrics.rateLimitsObservedAt = new Date().toISOString();
+      if (response.status === 429) {
+        const seconds = retryAfterSeconds(response.headers.get('retry-after'));
+        this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + seconds * 1000);
+        // Rate-limit responses may be HTML; never misclassify them as authentication.
+        if (response.body) await response.body.cancel();
+        throw this.#throttled(seconds);
+      }
       text = await response.text();
     } catch (err) {
+      if (err instanceof ArofloError) throw err;
       if (err.name === 'AbortError') {
         throw new ArofloError('AroFlo request timed out', { code: 'timeout' });
       }
@@ -175,6 +242,12 @@ export class ArofloClient {
 
     // AroFlo uses status "0" / "Login OK" for success. Anything else is an error.
     const statusNum = Number(status);
+    // AroFlo also reports throttling in its JSON status, sometimes with HTTP 200.
+    if ([6, 7, 429].includes(statusNum)) {
+      const seconds = statusNum === 7 ? dailyResetSeconds() : retryAfterSeconds(response.headers.get('retry-after'));
+      this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + seconds * 1000);
+      throw this.#throttled(seconds);
+    }
     const ok = response.ok && (status === '0' || statusNum === 0);
     if (!ok) {
       // Classify as auth strictly on AroFlo's documented auth code (-99999) or a 401/403,
@@ -208,5 +281,6 @@ export class ArofloError extends Error {
     this.httpStatus = meta.httpStatus;
     this.status = meta.status;
     this.body = meta.body;
+    this.retryAfter = meta.retryAfter;
   }
 }

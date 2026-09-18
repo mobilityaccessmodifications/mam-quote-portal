@@ -72,6 +72,7 @@ const config = {
   // Internal-testing mode: accept ONLY a job number and skip the client-name + post-code
   // verification. Leave false for production (the secure 3-field identity check).
   jobNumberOnly: bool(process.env.JOB_NUMBER_ONLY, false),
+  emptyCacheTtlSeconds: int(process.env.EMPTY_CACHE_TTL_SECONDS, 15, { min: 0 }),
   cacheTtlSeconds: int(process.env.CACHE_TTL_SECONDS, 120, { min: 0 }),
   // Anti-enumeration: pad negative (not-found / wrong-details) responses to this floor
   // (+ jitter) so they cannot be distinguished from each other by latency. Set the
@@ -98,6 +99,7 @@ const config = {
     orgEncoded: process.env.AROFLO_ORG_ENCODED || '',
     hostIp: (process.env.AROFLO_HOST_IP || '').trim(),
     accept: 'text/json',
+    metricsEnabled: bool(process.env.AROFLO_METRICS_ENABLED, true),
     // AroFlo applies a per-second API limit. This is an in-process request queue
     // interval, not a credential or browser-visible value.
     minRequestIntervalMs: int(process.env.AROFLO_MIN_REQUEST_INTERVAL_MS, 600, { min: 0 }),

@@ -4,17 +4,13 @@ import {
   isValidJobNumber,
   isValidName,
   isValidPostcode,
-  normaliseName,
-  normalisePostcode,
 } from '../aroflo/quoteService.js';
 import { ArofloError } from '../aroflo/client.js';
-import { createTtlCache } from '../util/cache.js';
 import config from '../config.js';
 
 export function createQuoteRouter(cfg = config) {
   const router = Router();
   const service = new QuoteService(cfg);
-  const cache = createTtlCache(cfg.cacheTtlSeconds);
 
   // Generic failure message (does not confirm whether a job exists when optional
   // identity fields are provided).
@@ -57,36 +53,30 @@ export function createQuoteRouter(cfg = config) {
     }
 
     const startedAt = Date.now();
-    const cacheKey = cfg.jobNumberOnly
-      ? `job:${jobNumber}`
-      : `${jobNumber}|${normaliseName(clientName)}|${normalisePostcode(postcode)}`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      // Keep cached negatives indistinguishable from cached positives by timing too.
-      // (No padding in jobNumberOnly mode — enumeration isn't a concern for internal use.)
-      if (!cached.verified && !cfg.jobNumberOnly) await padNegative(startedAt);
-      return res.json(cached);
-    }
 
     try {
       const result = await service.lookup(jobNumber, clientName, postcode);
 
       const payload = lookupPayload(result, jobNumber, cfg.verboseClientErrors, GENERIC_FAIL);
 
-      cache.set(cacheKey, payload);
       if (!payload.verified && !cfg.jobNumberOnly) await padNegative(startedAt);
       return res.json(payload);
     } catch (err) {
       if (err instanceof ArofloError) {
-        // Log the real detail server-side; return a safe message to the client.
-        console.error('[AroFlo error]', err.code, err.message, err.body || '');
+        // Never log provider messages/bodies: they can contain customer data.
+        console.error('[AroFlo error]', err.code);
+        if (err.code === 'rate_limit') {
+          res.setHeader('Retry-After', String(err.retryAfter || 60));
+          return res.status(503).json({ ok: false,
+            message: 'The quote system is busy. Please wait a little and try again.' });
+        }
         const message =
           err.code === 'auth'
             ? 'The quote system is temporarily unavailable. Please try again later or call our office.'
             : 'Something went wrong while checking your quote. Please try again shortly.';
         return res.status(502).json({ ok: false, message });
       }
-      console.error('[Unexpected error]', err);
+      console.error('[Unexpected quote lookup error]');
       return res.status(500).json({ ok: false, message: 'Unexpected error. Please try again later.' });
     }
   });
