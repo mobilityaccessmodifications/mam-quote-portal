@@ -10,7 +10,7 @@
  * Without it, req.ip on a serverless proxy is an internal address shared by every user,
  * which would throttle all traffic together.
  */
-export function createRateLimiter({ max, windowSeconds }, { clientIpHeader = '' } = {}) {
+export function createRateLimiter({ max, windowSeconds }, { clientIpHeader = '', coordinator = null } = {}) {
   const windowMs = windowSeconds * 1000;
   const hits = new Map(); // ip -> { count, resetAt }
 
@@ -32,8 +32,23 @@ export function createRateLimiter({ max, windowSeconds }, { clientIpHeader = '' 
     return req.ip || req.socket?.remoteAddress || 'unknown';
   }
 
-  return function rateLimit(req, res, next) {
+  return async function rateLimit(req, res, next) {
     const ip = resolveIp(req);
+    if (coordinator) {
+      try {
+        const { count, retryAfter } = await coordinator.limitIp(ip, windowSeconds);
+        res.setHeader('X-RateLimit-Limit', String(max));
+        res.setHeader('X-RateLimit-Remaining', String(Math.max(0, max-count)));
+        if (count > max) {
+          res.setHeader('Retry-After', String(retryAfter));
+          return res.status(429).json({ ok: false, message: 'Too many requests. Please wait a few minutes and try again.' });
+        }
+        return next();
+      } catch {
+        res.setHeader('Retry-After', '5');
+        return res.status(503).json({ ok: false, message: 'The quote system is temporarily unavailable. Please try again shortly.' });
+      }
+    }
     const now = Date.now();
     let rec = hits.get(ip);
     if (!rec || rec.resetAt <= now) {

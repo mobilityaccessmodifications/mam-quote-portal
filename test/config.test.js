@@ -69,3 +69,12 @@ test('validateConfig passes for a clean live configuration', () => {
   });
   assert.deepEqual(problems, []);
 });
+
+test('shared mode requires a complete HTTPS Redis configuration', () => {
+  const cfg = { mockMode:false, aroflo:{secretKey:'x',uEncoded:'x',pEncoded:'x',orgEncoded:'x'}, shared:{enabled:true} };
+  assert.ok(validateConfig(cfg).some(p=>p.includes('Redis')));
+  cfg.shared={enabled:true,url:'http://redis.invalid',token:'synthetic'};
+  assert.ok(validateConfig(cfg).some(p=>p.includes('HTTPS')));
+  cfg.shared.url='https://redis.invalid';
+  assert.deepEqual(validateConfig(cfg),[]);
+});

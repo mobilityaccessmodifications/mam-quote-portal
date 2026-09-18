@@ -1,3 +1,4 @@
+import { createCoordinator } from './shared/coordinator.js';
 import express from 'express';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -34,8 +35,9 @@ export function createApp(cfg = config) {
   });
 
   // Rate-limit the public API.
-  const limiter = createRateLimiter(cfg.rateLimit, { clientIpHeader: cfg.clientIpHeader });
-  app.use('/api', limiter, createQuoteRouter(cfg));
+  const coordinator = createCoordinator(cfg);
+  const limiter = createRateLimiter(cfg.rateLimit, { clientIpHeader: cfg.clientIpHeader, coordinator });
+  app.use('/api', limiter, createQuoteRouter(cfg, coordinator));
 
   // Serve the branded static frontend. On Vercel these files are bundled into the
   // function (see vercel.json "includeFiles") and this same handler serves them.

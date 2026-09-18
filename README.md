@@ -101,6 +101,10 @@ dates and reference).
 | `VERBOSE_CLIENT_ERRORS` | `true` only for testing (leaks job existence) |
 | `CACHE_TTL_SECONDS` | AroFlo resource freshness window, default `120` seconds; `0` disables completed-result caching |
 | `EMPTY_CACHE_TTL_SECONDS` | empty resource cache window, default `15` seconds, capped by `CACHE_TTL_SECONDS` |
+| `AROFLO_SHARED_ENABLED` | enable Redis coordination, default `false`; production requires provisioned storage |
+| `KV_REST_API_URL` / `KV_REST_API_TOKEN` | dedicated Redis REST endpoint and token; Upstash variable aliases are also accepted |
+| `AROFLO_DAILY_BUDGET` | portal ordinary-call admission budget, default `1900` |
+| `AROFLO_SECONDARY_DAILY_BUDGET` | portal single-record admission budget, default `19000` |
 | `AROFLO_METRICS_ENABLED` | emit sanitized lookup/usage metrics to server logs, default `true` |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_SECONDS` | abuse protection |
 | `PORT` | server port |
@@ -146,9 +150,9 @@ dates and reference).
 - **Hosting:** any Node host works (Render, Railway, Fly.io, a VPS, or Vercel
   with a small serverless adapter). Set the env vars in the host's dashboard —
   do **not** commit `.env`.
-- **Multi-instance:** the in-memory rate limiter/cache are per-process. For more
-  than one instance, back them with Redis (`src/middleware/rateLimit.js`,
-  `src/util/cache.js` and `src/aroflo/client.js` need a shared implementation).
+- **Multi-instance:** enable `AROFLO_SHARED_ENABLED=true` with a dedicated Redis
+  REST endpoint/token to share caching, admission, cooldowns and per-IP limiting.
+  See [shared-mode deployment](docs/AROFLO_SHARED_RELEASE.md).
 - **Name matching** uses the job location's AroFlo `SiteContact` when available,
   with the quote contact/client organisation as a fallback for legacy records.
 - **Secrets in the hand-off:** do **not** include `.env` in any zip/share you send.
@@ -199,52 +203,73 @@ risk scores are estimates unless a real coverage report is supplied.
 
 ### AroFlo call efficiency and monitoring
 
-The portal caches successful AroFlo GET results, keyed by the exact query within
-one credential-bound client, instead of caching public authorization responses.
-Quotes, tasks, locations and schedules are reused across lookups with different
-identity input. Every supplied name/postcode is still validated for every request.
-Data can be up to `CACHE_TTL_SECONDS` old, as with the previous lookup cache, but
-there is no second response-cache lifetime extending it. Expired data is never
-served as an error fallback. Empty collections have the shorter TTL above.
+Successful AroFlo resources are cached; public authorization responses are not.
+Every supplied name/postcode is checked on every lookup. Resource TTL defaults to
+120 seconds, with empty results cached for 15 seconds. Reads do not extend expiry.
+Failures and expired resources are never served as a fallback.
 
-Concurrent identical reads share one request, including when completed caching
-is disabled. Rejections are never cached. Storage is bounded to 256 entries and
-8 MiB of serialized key/value data per client (actual JS heap overhead is extra);
-expired records are purged on reads/writes and least-recently used entries are
-evicted. At most 32 distinct reads may be outstanding. The admission queue uses
-actual dispatch times to avoid bursts after delayed timers. All clients, caches,
-queues and counters remain process-local and reset on instance restart.
+With shared mode disabled, caching, identical-request coalescing and admission
+remain process-local. With `AROFLO_SHARED_ENABLED=true`, Redis shares results,
+request leases, provider cooldowns, daily admission counters and per-IP abuse
+limits across all instances of the same environment/organization. Different
+credentials use separate cache namespaces. Shared payloads use AES-256-GCM with a
+key derived from the AroFlo secret; resource keys and IP addresses are HMAC-hashed.
+Secrets and raw identifiers are never stored in cache keys or logged.
 
-Reviewed Minor Mods status wording does not require fetching historical
-appointments when every quote is approved and the status is not booked. Booked,
-mixed and unapproved quote lookups retain their schedule queries.
+Shared cache storage is bounded to 256 entries and 8 MiB of encrypted values per
+credential namespace; expiration metadata is extra. Earliest-expiring values are
+evicted when full; configured shared TTLs are capped at one hour. At most 32 cache loaders may hold leases concurrently. Leases
+expire after 60 seconds and only their owner can publish/release them. Waiters
+stop after eight seconds with a retryable response. Completed caching at TTL zero
+is disabled; local in-flight sharing still works, but separate instances may each
+perform a serialized refresh. Redis failures fail closed with HTTP 503, so an
+outage cannot cause all instances to bypass the quota controls.
 
-`[AroFlo usage]` server log entries contain lookup duration, cumulative upstream
-request/error/throttle counts, cache hits, coalesced reads, cumulative upstream
-duration and the latest observed quota headers with their observation timestamp.
-Missing/malformed headers mean unknown, not zero. These counters are lifetime
-counters for one client instance, **not** an account-wide daily total; concurrent
-lookups overlap. Use provider remaining-quota headers to assess budget, and log
-aggregation across instances to assess traffic. No query keys, job numbers,
-names, postcodes, credentials, signatures or provider response bodies are logged.
-No usage metrics are exposed through the public health or quote endpoints.
+Redis server time and atomic scripts coordinate admissions at a minimum 600 ms
+interval. Grants delayed by more than 500 ms are discarded to avoid a dispatch
+burst after a stalled response. Defaults reserve headroom: 1,900 ordinary and
+19,000 single-record admissions per Melbourne day. LastUpdate is exempt from the
+daily budget but still uses admission spacing. Provider remaining-quota headers
+can lower the available budget; out-of-order replies cannot increase it. Other
+integrations outside this portal still consume the same provider account quota.
+HTTP 429 and JSON statuses 6/429 share `Retry-After` cooldowns; status 7 pauses new
+reads until the next Melbourne midnight (including DST). There are no automatic
+AroFlo request retries. Already-fresh cached data can still be used normally.
 
-An HTTP 429 or AroFlo JSON status 6/429 starts a client-wide cooldown using
-`Retry-After` (or 60 seconds when unavailable). JSON status 7 pauses fresh reads
-until the next Melbourne midnight, including DST. Queued requests recheck the
-cooldown before dispatch. Fresh cached data can still be used with normal
-identity validation. No automatic retry spends additional API budget. The portal
-returns HTTP 503 and `Retry-After` when a lookup needs unavailable fresh data.
+On active traffic, LastUpdate runs at most once per minute across instances. It
+reads from a shared cursor with overlap, pages up to five 500-record pages and
+only advances after a complete scan. Quote/task/location/schedule changes
+invalidate shared resources and job-to-ID mappings. A failed/incomplete feed
+invalidates the mappings, caches a one-minute fallback decision and uses normal
+bounded-TTL collection discovery. There is no idle polling worker or public sync
+endpoint. The scan window is capped at ten minutes, matching the maximum lifetime
+of an ID mapping; no older mapping can survive an inactive period.
 
-Official API reference: <https://apidocs.aroflo.com/>. The Limits section documents
-120 requests/minute, 3/second, 2,000 ordinary calls/day and a separate 20,000/day
-single-zone-ID quota. The LastUpdate zone is exempt from the daily quota. These
-limits are not all enforced globally by this process-local implementation.
+A healthy feed allows single-record job mappings to be reused for up to ten
+minutes, while the resource data still expires after 120 seconds. Refreshes use
+`quoteid`/`taskid` and the separate single-zone-ID quota. Multi-record jobs continue
+to use collection discovery. Missing, deleted or moved records trigger discovery
+again. The initial collection read seeds the corresponding ID cache, avoiding an
+extra initial call. Because the provider does not document complete schedule
+LastUpdate coverage, schedules always retain the hard resource TTL. Collection
+queries consume all pages, up to ten, and fail rather than return a partial list.
 
-Follow-up infrastructure work: a company-scoped shared cache plus distributed
-admission control is required to deduplicate and rate-limit across Vercel
-instances. `Tasks join=location` must be checked for complete identity fields
-before removing Locations reads. LastUpdate coverage for quotes/schedules and
-record-ID discovery/invalidation must be validated before replacing bounded TTL
-refreshes. No polling worker, persistent customer-data store or new external
-service is provisioned by this change.
+Tasks include `join=location`; only a matching location ID with both `SiteContact`
+and `postcode` fields replaces the Locations read. Partial joins fall back to the
+Locations zone. Reviewed approved Minor Mods milestones also skip schedules when
+appointment history cannot change the reviewed wording. Identity rules and
+customer-facing status wording remain unchanged.
+
+`[AroFlo usage]` logs contain local upstream counters/timing and sanitized quota
+headers. Shared mode additionally reports aggregate Redis admission counters by
+quota class and cache hits (including internal coordination entries). Admissions
+are conservative reservations, not an exact upstream-billed total: lost or delayed
+grants remain counted. Shared metric counters expire after 48 hours of inactivity;
+they are not daily billing totals. Provider remaining-quota headers are the source
+for the account budget. No metrics, raw provider responses or query keys are exposed
+through public endpoints.
+
+Official references: [AroFlo API](https://apidocs.aroflo.com/),
+[Redis REST and EVAL](https://upstash.com/docs/redis/features/restapi),
+[Vercel trusted request headers](https://vercel.com/docs/headers/request-headers).
+See [release configuration and verification](docs/AROFLO_SHARED_RELEASE.md).

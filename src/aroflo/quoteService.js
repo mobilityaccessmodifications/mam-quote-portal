@@ -1,3 +1,4 @@
+import { createCoordinator } from '../shared/coordinator.js';
 import { ArofloClient } from './client.js';
 import { MOCK_JOBS } from '../mock/sampleData.js';
 import config from '../config.js';
@@ -660,11 +661,12 @@ export function sanitiseQuote(
  * The public-facing service.
  */
 export class QuoteService {
-  constructor(cfg = config) {
+  constructor(cfg = config, coordinator = createCoordinator(cfg)) {
     this.cfg = cfg;
     this.client = cfg.mockMode
       ? null
       : new ArofloClient({
+          coordinator,
           baseUrl: cfg.aroflo.baseUrl,
           secretKey: cfg.aroflo.secretKey,
           uEncoded: cfg.aroflo.uEncoded,
@@ -706,8 +708,11 @@ export class QuoteService {
       if (this.cfg.aroflo.metricsEnabled && this.client.metrics) {
         // Cumulative counters are process-local. Concurrent lookups can overlap;
         // do not present their deltas as precise per-user API consumption.
+        let shared;
+        try { shared = await this.client.shared?.usage(); }
+        catch { shared = { unavailable: true }; } // telemetry must not fail a verified lookup
         console.info('[AroFlo usage]', JSON.stringify({
-          lookupDurationMs: Date.now() - startedAt, ...this.client.metrics,
+          lookupDurationMs: Date.now() - startedAt, ...this.client.metrics, ...(shared ? { shared } : {}),
         }));
       }
     }
@@ -741,7 +746,12 @@ export class QuoteService {
     let location = null;
     const relevantTask = await loadRelevantTask();
     const locationId = taskLocationId(relevantTask);
-    if (locationId) {
+    const joined = relevantTask?.location;
+    // Only a complete join for the exact linked location can replace its lookup.
+    if (locationId && joined?.locationid === locationId &&
+        Object.hasOwn(joined, 'SiteContact') && Object.hasOwn(joined, 'postcode')) {
+      location = joined;
+    } else if (locationId) {
       const locationsResp = await this.client.get({
         zone: 'Locations',
         where: [`and|locationid|=|${locationId}`],
@@ -780,10 +790,10 @@ export class QuoteService {
   async #lookupLive(job, clientName, postcode) {
     // Quotes carry the status and legacy contact/address fields. For a supplied
     // resident name, the linked task location is the authoritative AroFlo source.
-    const quotesResp = await this.client.get({
-      zone: 'Quotes',
-      where: [`and|jobnumber|=|${job}`],
-    });
+    const updatesHealthy = this.client.refreshUpdates ? await this.client.refreshUpdates() : false;
+    const quotesResp = this.client.getByJob
+      ? await this.client.getByJob('Quotes', job, { updatesHealthy })
+      : await this.client.get({ zone: 'Quotes', where: [`and|jobnumber|=|${job}`] });
     const quotes = (quotesResp.zoneResponse.quotes ?? [])
       .slice()
       .sort((a, b) => quoteCreatedTs(b) - quoteCreatedTs(a)); // newest first, deterministic
@@ -799,10 +809,9 @@ export class QuoteService {
     // resolve the physical job location for supplied identity details.
     const loadRelevantTask = async () => {
       if (tasks !== null) return task;
-      const tasksResp = await this.client.get({
-        zone: 'Tasks',
-        where: [`and|jobnumber|=|${job}`],
-      });
+      const tasksResp = this.client.getByJob
+        ? await this.client.getByJob('Tasks', job, { join: ['location'], updatesHealthy })
+        : await this.client.get({ zone: 'Tasks', where: [`and|jobnumber|=|${job}`], join: ['location'] });
       tasks = tasksResp.zoneResponse.tasks ?? [];
       task = selectRelevantTask(tasks);
       return task;
@@ -838,7 +847,7 @@ export class QuoteService {
       );
 
       if (needsScheduleHistory) {
-        const schedulesResp = await this.client.get({
+        const schedulesResp = await (this.client.getCollection || this.client.get).call(this.client, {
           zone: 'Schedules',
           where: [`and|taskid|=|${task.taskid}`],
           page: 1,

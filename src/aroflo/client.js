@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { createTtlCache } from '../util/cache.js';
+import { refreshUpdates } from './updates.js';
 import { readRateLimits, dailyResetSeconds, retryAfterSeconds } from './limits.js';
 
 /**
@@ -58,6 +59,8 @@ export class ArofloClient {
     this.minRequestIntervalMs = Number.isFinite(opts.minRequestIntervalMs)
       ? Math.max(0, opts.minRequestIntervalMs)
       : 600;
+    /** @type {import('../shared/coordinator.js').Coordinator | null} */
+    this.shared = opts.coordinator || null;
     this.nextRequestAt = 0;
     this.slotQueue = Promise.resolve();
     this.cooldownUntil = 0;
@@ -66,7 +69,7 @@ export class ArofloClient {
     this.cache = createTtlCache(this.cacheTtlSeconds);
     this.inFlight = new Map();
     this.metrics = { requests: 0, cacheHits: 0, coalesced: 0, errors: 0, throttled: 0,
-      durationMs: 0, rateLimits: {}, rateLimitsObservedAt: null };
+      coordination: this.shared ? 'shared' : 'local', durationMs: 0, rateLimits: {}, rateLimitsObservedAt: null };
   }
 
   /** Build the Authorization string. Each encoded credential is URI-encoded. */
@@ -123,7 +126,7 @@ export class ArofloClient {
    */
   async get(query) {
     const varString = ArofloClient.buildVarString(query);
-    const cached = this.cache.get(varString);
+    const cached = this.shared ? undefined : this.cache.get(varString);
     if (cached !== undefined) {
       this.metrics.cacheHits++;
       return cached;
@@ -134,10 +137,92 @@ export class ArofloClient {
     }
     // Bound the number of distinct outstanding queries as well as stored data.
     if (this.inFlight.size >= 32) throw this.#throttled(1);
-    const pending = this.#getFresh(varString, query.zone);
+    const pending = this.#read(query, varString).catch((error) => {
+      if (error.code === 'rate_limit' && !(error instanceof ArofloError)) throw this.#throttled(error.retryAfter);
+      if (error.code === 'shared_unavailable') throw new ArofloError('Shared coordination unavailable', { code: 'unavailable' });
+      throw error;
+    });
     this.inFlight.set(varString, pending);
     try { return await pending; }
     finally { this.inFlight.delete(varString); }
+  }
+
+  async #read(query, varString) {
+    if (!this.shared || String(query.zone).toLowerCase() === 'lastupdate') return this.#getFresh(varString, query);
+    const generation = await this.shared.generation();
+    return this.shared.cached(varString, (result) => this.#ttl(result, query.zone),
+      () => this.#getFresh(varString, query), { generation });
+  }
+
+  #ttl(result, zone) {
+    const rows = result.zoneResponse?.[String(zone).toLowerCase()];
+    return Array.isArray(rows) && rows.length === 0 ? this.emptyCacheTtlSeconds : this.cacheTtlSeconds;
+  }
+
+  async getCollection(query) {
+    const result = await this.get(query);
+    const zone = String(query.zone).toLowerCase();
+    const rows = result.zoneResponse[zone];
+    const max = Number(result.zoneResponse.maxpageresults);
+    if (!Array.isArray(rows) || !max || rows.length < max) return result;
+    const all = rows.slice();
+    for (let page = (query.page || 1) + 1; page <= 10; page++) {
+      const next = await this.get({ ...query, page });
+      const batch = next.zoneResponse[zone];
+      if (!Array.isArray(batch)) throw new ArofloError('Invalid collection page', { code: 'api' });
+      all.push(...batch);
+      if (batch.length < (Number(next.zoneResponse.maxpageresults) || max)) {
+        return { ...result, zoneResponse: { ...result.zoneResponse, [zone]: all } };
+      }
+    }
+    throw new ArofloError('Collection pagination incomplete', { code: 'api' });
+  }
+
+  async refreshUpdates() {
+    if (!this.shared) return false;
+    try {
+      const result = await refreshUpdates(this, this.shared);
+      return result.healthy;
+    } catch (error) {
+      // A quota cooldown must still allow already-fresh collection resources.
+      // Bypass ID mappings; any actual refresh still passes shared admission.
+      if (error.code === 'rate_limit') return false;
+      throw error;
+    }
+  }
+
+  /** Keep discovery separate from fresh data: a healthy update feed invalidates
+   * ID mappings on any relevant event, including newly created sibling records.
+   * Multi-record results keep using the original collection query.
+   */
+  async getByJob(zone, job, { join, updatesHealthy = false } = {}) {
+    const query = { zone, where: [`and|jobnumber|=|${job}`], ...(join ? { join } : {}) };
+    if (!this.shared || !updatesHealthy) return this.getCollection(query);
+    const generation = await this.shared.generation();
+    const idField = zone.toLowerCase() === 'quotes' ? 'quoteid' : 'taskid';
+    let discovered;
+    const ids = await this.shared.cached(`discovery:${ArofloClient.buildVarString(query)}`,
+      () => remainingTtl(discovered, 600), async () => {
+      discovered = await this.getCollection(query);
+      const rows = discovered.zoneResponse[zone.toLowerCase()] || [];
+      if (rows.length === 1 && rows[0][idField]) {
+        const recordQuery = { zone, where: [`and|${idField}|=|${rows[0][idField]}`], ...(join ? { join } : {}) };
+        await this.shared.cached(ArofloClient.buildVarString(recordQuery), remainingTtl(discovered, this.#ttl(discovered, zone)),
+          async () => discovered, { generation });
+        return [rows[0][idField]];
+      }
+      return [];
+    }, { generation });
+    if (discovered) return discovered;
+    if (ids.length !== 1) return this.getCollection(query);
+    const result = await this.get({ zone, where: [`and|${idField}|=|${ids[0]}`], ...(join ? { join } : {}) });
+    const rows = result.zoneResponse[zone.toLowerCase()] || [];
+    // Missing/deleted/moved records require fresh membership discovery.
+    if (rows.length !== 1 || String(rows[0].jobnumber) !== String(job)) {
+      await this.shared.invalidate();
+      return this.getCollection(query);
+    }
+    return result;
   }
 
   #throttled(retryAfter) {
@@ -151,15 +236,18 @@ export class ArofloClient {
     }
   }
 
-  async #getFresh(varString, zone) {
-    await this.#waitForRequestSlot();
+  async #getFresh(varString, query) {
+    const zone = String(query.zone).toLowerCase();
+    const idField = { quotes: 'quoteid', tasks: 'taskid', locations: 'locationid', schedules: 'scheduleid' }[zone];
+    const singleId = idField && query.where?.length === 1 && query.where[0].startsWith(`and|${idField}|=|`);
+    if (this.shared) await this.shared.admit(zone === 'lastupdate' ? 'exempt' : singleId ? 'secondary' : 'ordinary');
+    else await this.#waitForRequestSlot();
     const startedAt = Date.now();
     this.metrics.requests++;
     try {
       const result = await this.#send('GET', varString);
-      const rows = result.zoneResponse?.[String(zone).toLowerCase()];
-      const ttl = Array.isArray(rows) && rows.length === 0 ? this.emptyCacheTtlSeconds : this.cacheTtlSeconds;
-      this.cache.set(varString, result, ttl);
+      result.fetchedAt = Date.now();
+      if (!this.shared) this.cache.set(varString, result, this.#ttl(result, zone));
       return result;
     } catch (error) {
       this.metrics.errors++;
@@ -208,16 +296,18 @@ export class ArofloClient {
       response = await fetch(url, { method, headers, signal: controller.signal });
       this.metrics.rateLimits = readRateLimits(response.headers);
       this.metrics.rateLimitsObservedAt = new Date().toISOString();
+      if (this.shared) await this.shared.observe(this.metrics.rateLimits);
       if (response.status === 429) {
         const seconds = retryAfterSeconds(response.headers.get('retry-after'));
         this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + seconds * 1000);
+        if (this.shared) await this.shared.cooldown(seconds);
         // Rate-limit responses may be HTML; never misclassify them as authentication.
         if (response.body) await response.body.cancel();
         throw this.#throttled(seconds);
       }
       text = await response.text();
     } catch (err) {
-      if (err instanceof ArofloError) throw err;
+      if (err instanceof ArofloError || err.code === 'shared_unavailable') throw err;
       if (err.name === 'AbortError') {
         throw new ArofloError('AroFlo request timed out', { code: 'timeout' });
       }
@@ -246,6 +336,7 @@ export class ArofloClient {
     if ([6, 7, 429].includes(statusNum)) {
       const seconds = statusNum === 7 ? dailyResetSeconds() : retryAfterSeconds(response.headers.get('retry-after'));
       this.cooldownUntil = Math.max(this.cooldownUntil, Date.now() + seconds * 1000);
+      if (this.shared) await this.shared.cooldown(seconds);
       throw this.#throttled(seconds);
     }
     const ok = response.ok && (status === '0' || statusNum === 0);
@@ -283,4 +374,9 @@ export class ArofloError extends Error {
     this.body = meta.body;
     this.retryAfter = meta.retryAfter;
   }
+}
+
+function remainingTtl(result, seconds) {
+  if (!Number.isFinite(result?.fetchedAt)) return 0;
+  return Math.max(0, seconds - (Date.now() - result.fetchedAt) / 1000);
 }
