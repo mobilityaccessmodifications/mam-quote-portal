@@ -4,7 +4,7 @@
 
 - GitHub: `mobilityaccessmodifications/mam-quote-portal`, reviewed PR into `main`.
 - Vercel: `mam-quote-portal`, team `ai-7033s-projects`.
-- Proposed store: dedicated `mam-quote-shared-cache`, Upstash Redis free plan,
+- Approved and provisioned store: dedicated `mam-quote-shared-cache`, Upstash Redis free plan,
   Sydney (`syd1`), no read replicas, no automatic paid upgrade, no provider eviction.
 - Function region: Sydney, matching Redis to reduce coordination latency.
 - Only this project's production environment receives the store credentials.
@@ -13,11 +13,11 @@
   IP buckets, leases, quota counters and a synchronization cursor. It is not a
   customer-data archive. Provider persistence/retention policies still apply.
 
-Creating and connecting this new third-party destination requires explicit
-provider-specific approval. Until storage is approved, provisioned and verified,
-leave `AROFLO_SHARED_ENABLED` disabled and do not describe shared mode as live.
-The feature is deliberately opt-in so a missing store cannot silently change an
-existing release's availability.
+The project owner approved this provider and production data destination. The
+store has been verified using isolated synthetic keys for encrypted cross-instance
+caching, atomic admissions, IP counters, provider quota tracking and cooldowns.
+`AROFLO_SHARED_ENABLED=true` is configured for production; activation occurs with
+the reviewed main-branch deployment. Other environments remain opt-in.
 
 ## Configuration
 
