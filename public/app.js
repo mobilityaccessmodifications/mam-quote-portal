@@ -101,7 +101,7 @@ function stepperHtml(step, steps, declined) {
 function quoteCardHtml(q, jobNumber, idx, total) {
   const declined = q.terminal === 'declined';
   const steps = q.steps || [];
-  const isFinal = !declined && q.step >= steps.length; // last step reached (Approved)
+  const isFinal = !declined && q.step >= steps.length;
   const pillClass = declined ? 's0' : isFinal ? 's4' : 's1';
 
   const details = [];

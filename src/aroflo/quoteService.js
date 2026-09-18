@@ -277,6 +277,37 @@ function isExternalContractor(task) {
   return /\bexternal contractor\b/i.test(taskType(task));
 }
 
+const STANDARD_JOB_STEPS = ['Quoted', 'Approved', 'Booked', 'Complete'];
+const CUSTOM_MINOR_JOB_STEPS = ['1st Visit Booked', '2nd Visit Booked', 'Completed'];
+
+/**
+ * Custom Minor Mods uses two separate bookings in AroFlo:
+ *  - Not Started + Booked means the first (measure) visit is booked.
+ *  - In Progress + Booked means the second (installation) visit is booked.
+ * Pending/In Progress custom tasks have already passed the first booking stage,
+ * while Completed/Archived is the final customer-facing stage.
+ */
+function customMinorProgressStep(task, hasSiteVisit = false) {
+  const status = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
+  const substatus = taskSubstatus(task).trim().toLowerCase();
+
+  if (status === 'completed' || status === 'archived' ||
+      substatus === 'completed' || substatus === 'complete') return 3;
+  if (isBookedSubstatus(substatus) && status === 'in progress') return 2;
+  if (isBookedSubstatus(substatus)) return 1;
+  if (hasSiteVisit || status === 'pending' || status === 'in progress') return 1;
+  return 0;
+}
+
+function jobProgress(unit, task, hasSiteVisit = false) {
+  const customMinor = unit === 'minor' && isCustomInstall(task);
+  return {
+    customMinor,
+    steps: customMinor ? CUSTOM_MINOR_JOB_STEPS : STANDARD_JOB_STEPS,
+    customStep: customMinor ? customMinorProgressStep(task, hasSiteVisit) : null,
+  };
+}
+
 /** Which scheduler timeframe applies to an unbooked approved job. */
 export function schedulerSlaType(task, hasSiteVisit = false) {
   if (hasSiteVisit || /\bstock\b/i.test(taskType(task))) return 'installation';
@@ -421,14 +452,15 @@ export function deriveJobStatus(
   const quoteState = String(quoteStatus || '').trim().toLowerCase();
   if (quoteState === 'rejected') return { ...quote, tone: 'declined' };
 
-  const jobSteps = ['Quoted', 'Approved', 'Booked', 'Complete'];
+  const progress = jobProgress(unit, task, hasSiteVisit);
+  const jobSteps = progress.steps;
 
   if (quoteState !== 'approved') {
     if (hasSiteVisit) {
       return {
         ...quote,
         steps: jobSteps,
-        step: 2,
+        step: progress.customMinor ? progress.customStep : 2,
         label: 'Site visit completed',
         message: '',
         tone: 'approved',
@@ -437,17 +469,18 @@ export function deriveJobStatus(
     return {
       ...quote,
       steps: jobSteps,
-      step: 1,
+      step: progress.customMinor ? progress.customStep : 1,
       label: 'Quoted — awaiting approval',
       message: 'Your quote has been prepared and is awaiting approval.',
       tone: 'quoted',
     };
   }
 
-  return approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps);
+  return approvedTaskStatus(quote, unit, task, hasSiteVisit, progress);
 }
 
-function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
+function approvedTaskStatus(quote, unit, task, hasSiteVisit, progress) {
+  const { steps: jobSteps, customMinor, customStep } = progress;
   const taskState = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
   const taskSub = taskSubstatus(task).trim().toLowerCase();
   const base = { ...quote, taskStatus: task?.status || task?.taskstatus || '', taskSubstatus: taskSubstatus(task) };
@@ -460,7 +493,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
       return {
         ...base,
         steps: jobSteps,
-        step: complete ? 4 : booked ? 3 : 2,
+        step: customMinor ? customStep : complete ? 4 : booked ? 3 : 2,
         label: minorTaskPortalLabel(task),
         message: reviewedMessage,
         tone: complete ? 'complete' : booked ? 'booked' : taskSub.includes('hold') ? 'hold' : 'approved',
@@ -472,7 +505,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
     return {
       ...base,
       steps: jobSteps,
-      step: 4,
+      step: customMinor ? 3 : 4,
       label: 'Job complete',
       message: 'The approved work for this job is complete.',
       tone: 'complete',
@@ -483,7 +516,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
     return {
       ...base,
       steps: jobSteps,
-      step: 4,
+      step: customMinor ? 3 : 4,
       label: 'Job complete',
       message: 'The approved work for this job is complete.',
       tone: 'complete',
@@ -494,7 +527,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'Approved — on hold',
       message: 'Your quote has been approved, but the job is currently on hold.',
       tone: 'hold',
@@ -512,17 +545,29 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, jobSteps) {
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'Site visit completed',
       message: '',
       tone: 'approved',
     };
   }
 
-  return approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskState, taskSub });
+  return approvedBookingStatus(base, {
+    unit,
+    task,
+    hasSiteVisit,
+    jobSteps,
+    customMinor,
+    customStep,
+    taskState,
+    taskSub,
+  });
 }
 
-function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskState, taskSub }) {
+function approvedBookingStatus(
+  base,
+  { unit, task, hasSiteVisit, jobSteps, customMinor, customStep, taskState, taskSub },
+) {
   // External-contractor jobs have a separate booking process. Do not show the
   // internal scheduler wording or a generic SLA for these jobs; the reviewed
   // customer-facing lead time below is the only commitment we make.
@@ -533,7 +578,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'Approved',
       message: 'Your quote has been accepted. The estimated lead time for booking is up to 15 business days from the date of approval during standard business periods.',
       tone: 'approved',
@@ -553,7 +598,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'In progress — installation to be booked',
       message: 'Your custom-install job is in progress and nearing completion. Our scheduler will be in touch to book the installation.',
       tone: 'approved',
@@ -565,7 +610,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'Approved — to be booked',
       message: 'Your quote has been approved. Our scheduler will be in touch to arrange a booking.',
       tone: 'approved',
@@ -577,7 +622,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
     return {
       ...base,
       steps: jobSteps,
-      step: 2,
+      step: customMinor ? customStep : 2,
       label: 'Approved',
       message: bookingToBeArrangedMessage(task, hasSiteVisit),
       tone: 'approved',
@@ -589,7 +634,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
     return {
       ...base,
       steps: jobSteps,
-      step: 3,
+      step: customMinor ? customStep : 3,
       label: 'Booked',
       message: 'Your quote has been approved and the works have been booked.',
       tone: 'booked',
@@ -599,7 +644,7 @@ function approvedBookingStatus(base, { unit, task, hasSiteVisit, jobSteps, taskS
   return {
     ...base,
     steps: jobSteps,
-    step: 2,
+    step: customMinor ? customStep : 2,
     label: 'Approved',
     message: 'Your quote has been approved. Our scheduler will be in touch to arrange the works.',
     tone: 'approved',

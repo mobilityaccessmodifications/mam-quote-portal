@@ -137,6 +137,53 @@ test('deriveJobStatus maps the team-approved public workflow', () => {
   }).message, 'Your quote has been approved. Our scheduler will be in touch to arrange a booking.');
 });
 
+test('custom Minor Mods uses separate first-visit and second-visit progress stages', () => {
+  const beforeFirstBooking = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'Custom Install',
+    substatus: { substatus: 'To be booked' },
+  });
+  assert.deepEqual(beforeFirstBooking.steps, ['1st Visit Booked', '2nd Visit Booked', 'Completed']);
+  assert.equal(beforeFirstBooking.step, 0);
+
+  const firstVisitBooked = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'Custom Install B',
+    substatus: { substatus: 'Booked' },
+  });
+  assert.deepEqual(firstVisitBooked.steps, ['1st Visit Booked', '2nd Visit Booked', 'Completed']);
+  assert.equal(firstVisitBooked.step, 1);
+
+  const betweenVisits = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Pending',
+    tasktype: 'Custom Install',
+    substatus: { substatus: 'To Be Manufactured' },
+  });
+  assert.equal(betweenVisits.step, 1);
+
+  const secondVisitBooked = deriveJobStatus('Approved', '', 'minor', {
+    status: 'In Progress',
+    tasktype: 'Custom Install',
+    substatus: { substatus: 'Booked' },
+  });
+  assert.equal(secondVisitBooked.step, 2);
+
+  const completed = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Completed',
+    tasktype: 'Custom Install',
+    substatus: { substatus: '' },
+  });
+  assert.equal(completed.step, 3);
+
+  const stockBooked = deriveJobStatus('Approved', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'Stock Install',
+    substatus: { substatus: 'Booked' },
+  });
+  assert.deepEqual(stockBooked.steps, ['Quoted', 'Approved', 'Booked', 'Complete']);
+  assert.equal(stockBooked.step, 3);
+});
+
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
   const scenarios = [
     ['Not Started', '', 'Please contact our admin team at mam@mobilityaccess.com.au'],
