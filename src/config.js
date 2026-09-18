@@ -67,7 +67,7 @@ const config = {
   trustProxyUnsafe: trustProxyParsed.unsafe,
   // Header a trusted platform proxy sets to the real client IP (e.g. "x-real-ip" on
   // Vercel). Used only for rate-limit keying. Blank = use the socket IP (req.ip).
-  clientIpHeader: (process.env.CLIENT_IP_HEADER || '').trim().toLowerCase(),
+  clientIpHeader: (process.env.CLIENT_IP_HEADER ?? (process.env.VERCEL === '1' ? 'x-real-ip' : '')).trim().toLowerCase(),
   verboseClientErrors: bool(process.env.VERBOSE_CLIENT_ERRORS, false),
   // Internal-testing mode: accept ONLY a job number and skip the client-name + post-code
   // verification. Leave false for production (the secure 3-field identity check).
@@ -90,6 +90,14 @@ const config = {
   rateLimit: {
     max: int(process.env.RATE_LIMIT_MAX, 20, { min: 1 }),
     windowSeconds: int(process.env.RATE_LIMIT_WINDOW_SECONDS, 300, { min: 1 }),
+  },
+  shared: {
+    enabled: bool(process.env.AROFLO_SHARED_ENABLED, false),
+    url: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL || '',
+    token: process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN || '',
+    scope: process.env.VERCEL_ENV || 'development',
+    dailyBudget: int(process.env.AROFLO_DAILY_BUDGET, 1900, { min: 1 }),
+    secondaryBudget: int(process.env.AROFLO_SECONDARY_DAILY_BUDGET, 19000, { min: 1 }),
   },
   aroflo: {
     baseUrl: process.env.AROFLO_BASE_URL || 'https://api.aroflo.com/',
@@ -130,6 +138,13 @@ export function validateConfig(cfg = config) {
     );
   }
 
+  if (cfg.shared?.enabled && !cfg.mockMode) {
+    if (!cfg.shared.url || !cfg.shared.token) problems.push('Shared coordination requires Redis REST URL and token');
+    else {
+      try { if (new URL(cfg.shared.url).protocol !== 'https:') problems.push('Redis REST URL must use HTTPS'); }
+      catch { problems.push('Redis REST URL is invalid'); }
+    }
+  }
   if (cfg.mockMode) return problems; // mock mode needs no credentials
 
   const required = [

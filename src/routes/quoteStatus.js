@@ -8,9 +8,9 @@ import {
 import { ArofloError } from '../aroflo/client.js';
 import config from '../config.js';
 
-export function createQuoteRouter(cfg = config) {
+export function createQuoteRouter(cfg = config, coordinator) {
   const router = Router();
-  const service = new QuoteService(cfg);
+  const service = new QuoteService(cfg, coordinator);
 
   // Generic failure message (does not confirm whether a job exists when optional
   // identity fields are provided).
@@ -62,10 +62,10 @@ export function createQuoteRouter(cfg = config) {
       if (!payload.verified && !cfg.jobNumberOnly) await padNegative(startedAt);
       return res.json(payload);
     } catch (err) {
-      if (err instanceof ArofloError) {
+      if (err instanceof ArofloError || ['rate_limit', 'shared_unavailable'].includes(err.code)) {
         // Never log provider messages/bodies: they can contain customer data.
         console.error('[AroFlo error]', err.code);
-        if (err.code === 'rate_limit') {
+        if (['rate_limit', 'unavailable', 'shared_unavailable'].includes(err.code)) {
           res.setHeader('Retry-After', String(err.retryAfter || 60));
           return res.status(503).json({ ok: false,
             message: 'The quote system is busy. Please wait a little and try again.' });
