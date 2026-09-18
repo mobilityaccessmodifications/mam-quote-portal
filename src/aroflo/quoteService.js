@@ -278,25 +278,26 @@ function isExternalContractor(task) {
 }
 
 const STANDARD_JOB_STEPS = ['Quoted', 'Approved', 'Booked', 'Complete'];
-const CUSTOM_MINOR_JOB_STEPS = ['1st Visit Booked', '2nd Visit Booked', 'Completed'];
+const CUSTOM_MINOR_JOB_STEPS = ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed'];
 
 /**
  * Custom Minor Mods uses two separate bookings in AroFlo:
  *  - Not Started + Booked means the first (measure) visit is booked.
  *  - In Progress + Booked means the second (installation) visit is booked.
- * Pending/In Progress custom tasks have already passed the first booking stage,
- * while Completed/Archived is the final customer-facing stage.
+ * Quoted and Approved are the first two customer-facing stages. Pending/In
+ * Progress custom tasks have already passed the first booking stage, while
+ * Completed/Archived is the final stage.
  */
 function customMinorProgressStep(task, hasSiteVisit = false) {
   const status = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
   const substatus = taskSubstatus(task).trim().toLowerCase();
 
   if (status === 'completed' || status === 'archived' ||
-      substatus === 'completed' || substatus === 'complete') return 3;
-  if (isBookedSubstatus(substatus) && status === 'in progress') return 2;
-  if (isBookedSubstatus(substatus)) return 1;
-  if (hasSiteVisit || status === 'pending' || status === 'in progress') return 1;
-  return 0;
+      substatus === 'completed' || substatus === 'complete') return 5;
+  if (isBookedSubstatus(substatus) && status === 'in progress') return 4;
+  if (isBookedSubstatus(substatus)) return 3;
+  if (hasSiteVisit || status === 'pending' || status === 'in progress') return 3;
+  return 2;
 }
 
 function jobProgress(unit, task, hasSiteVisit = false) {
@@ -469,7 +470,7 @@ export function deriveJobStatus(
     return {
       ...quote,
       steps: jobSteps,
-      step: progress.customMinor ? progress.customStep : 1,
+      step: 1,
       label: 'Quoted — awaiting approval',
       message: 'Your quote has been prepared and is awaiting approval.',
       tone: 'quoted',
@@ -505,7 +506,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, progress) {
     return {
       ...base,
       steps: jobSteps,
-      step: customMinor ? 3 : 4,
+      step: customMinor ? customStep : 4,
       label: 'Job complete',
       message: 'The approved work for this job is complete.',
       tone: 'complete',
@@ -516,7 +517,7 @@ function approvedTaskStatus(quote, unit, task, hasSiteVisit, progress) {
     return {
       ...base,
       steps: jobSteps,
-      step: customMinor ? 3 : 4,
+      step: customMinor ? customStep : 4,
       label: 'Job complete',
       message: 'The approved work for this job is complete.',
       tone: 'complete',
