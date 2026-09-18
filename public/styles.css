@@ -130,7 +130,7 @@ body.job-only .optional-field { display: none; }
 
 .unit-badge { display: inline-block; margin: 2px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--brand-link); }
 
-/* Stepper — adapts to however many steps the unit's flow has (3 or 4). */
+/* Stepper — adapts to however many steps the unit's flow has. */
 .stepper { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; margin: 4px 0 24px; padding: 2px 0; }
 .step { text-align: center; position: relative; padding-top: 26px; font-size: 12px; color: var(--ink-soft); }
 .step::before { content: ""; position: absolute; top: 5px; left: 50%; width: 15px; height: 15px; transform: translateX(-50%); border-radius: 50%; background: #fff; border: 3px solid var(--line); z-index: 2; display: grid; place-items: center; color: #fff; font-size: 10px; font-weight: 800; line-height: 1; }

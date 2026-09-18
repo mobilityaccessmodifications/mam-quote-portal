@@ -137,43 +137,51 @@ test('deriveJobStatus maps the team-approved public workflow', () => {
   }).message, 'Your quote has been approved. Our scheduler will be in touch to arrange a booking.');
 });
 
-test('custom Minor Mods uses separate first-visit and second-visit progress stages', () => {
+test('custom Minor Mods uses the complete quote-to-install progress stages', () => {
+  const quoted = deriveJobStatus('In Progress', '', 'minor', {
+    status: 'Not Started',
+    tasktype: 'Custom Install',
+    substatus: { substatus: '' },
+  });
+  assert.deepEqual(quoted.steps, ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed']);
+  assert.equal(quoted.step, 1);
+
   const beforeFirstBooking = deriveJobStatus('Approved', '', 'minor', {
     status: 'Not Started',
     tasktype: 'Custom Install',
     substatus: { substatus: 'To be booked' },
   });
-  assert.deepEqual(beforeFirstBooking.steps, ['1st Visit Booked', '2nd Visit Booked', 'Completed']);
-  assert.equal(beforeFirstBooking.step, 0);
+  assert.deepEqual(beforeFirstBooking.steps, ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed']);
+  assert.equal(beforeFirstBooking.step, 2);
 
   const firstVisitBooked = deriveJobStatus('Approved', '', 'minor', {
     status: 'Not Started',
     tasktype: 'Custom Install B',
     substatus: { substatus: 'Booked' },
   });
-  assert.deepEqual(firstVisitBooked.steps, ['1st Visit Booked', '2nd Visit Booked', 'Completed']);
-  assert.equal(firstVisitBooked.step, 1);
+  assert.deepEqual(firstVisitBooked.steps, ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed']);
+  assert.equal(firstVisitBooked.step, 3);
 
   const betweenVisits = deriveJobStatus('Approved', '', 'minor', {
     status: 'Pending',
     tasktype: 'Custom Install',
     substatus: { substatus: 'To Be Manufactured' },
   });
-  assert.equal(betweenVisits.step, 1);
+  assert.equal(betweenVisits.step, 3);
 
   const secondVisitBooked = deriveJobStatus('Approved', '', 'minor', {
     status: 'In Progress',
     tasktype: 'Custom Install',
     substatus: { substatus: 'Booked' },
   });
-  assert.equal(secondVisitBooked.step, 2);
+  assert.equal(secondVisitBooked.step, 4);
 
   const completed = deriveJobStatus('Approved', '', 'minor', {
     status: 'Completed',
     tasktype: 'Custom Install',
     substatus: { substatus: '' },
   });
-  assert.equal(completed.step, 3);
+  assert.equal(completed.step, 5);
 
   const stockBooked = deriveJobStatus('Approved', '', 'minor', {
     status: 'Not Started',
