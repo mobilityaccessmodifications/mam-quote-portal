@@ -183,6 +183,17 @@ test('reviewed Minor Mods milestones avoid unused schedules; nonfinal quotes ret
   assert.deepEqual(nonfinalCalls, ['Quotes', 'Tasks', 'Schedules']);
 });
 
+test('reviewed Major Mods milestones avoid unused schedule reads', async (t) => {
+  const calls = stubZones(t, {
+    substatus: '1.2 MEASURE COMPLETE - PROJECT DOC. REQ. [CA-5D]',
+    orgname: 'MAJOR MODS',
+  });
+  const result = await liveService().lookup('999999999999', '', '');
+  assert.equal(result.outcome, 'verified');
+  assert.match(result.quotes[0].statusMessage, /Contract Administrator/);
+  assert.deepEqual(calls, ['Quotes', 'Tasks']);
+});
+
 test('usage telemetry includes quota counters and timing but no identifiers or customer data', async (t) => {
   stubZones(t);
   const log = t.mock.method(console, 'info', () => {});

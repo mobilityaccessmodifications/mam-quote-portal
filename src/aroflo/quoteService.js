@@ -372,6 +372,84 @@ function bookingToBeArrangedMessage(task, hasSiteVisit = false) {
 }
 
 /**
+ * Team-approved Major Mods portal copy, keyed by AroFlo Task status/substatus.
+ * Hidden archived substatuses are intentionally excluded. Obvious spelling and
+ * grammar errors in the reviewed customer copy are corrected here.
+ */
+const MAJOR_TASK_PORTAL_WORDING = new Map([
+  ['not started\u0000', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+  ['not started\u00001 1 1 drafty order to be booked rs 3d', 'Quote for the job has been approved for build. Our scheduling team will be in touch with the client soon to organise an Order Visit (Pre-Construction Site Meeting) to firm up the measures, plan, order and scope of work.'],
+  ['not started\u00001 1 2 drafty quote to be booked rs 3d', 'Quote for MAM Drafty service has been approved. Our scheduling team will be in touch with the client soon to organise a Quote Visit to consult, measure, design, draft and finalise a scope of work for your proposed home modification.'],
+  ['not started\u00001 1 3 drafty order booked in rs', 'Quote for the job has been approved for build. Our scheduling team has locked in a date with the client and/or the quote requestor for the Order Visit (Pre-Construction Site Meeting) to firm up the measures, plan, order and scope of work.'],
+  ['not started\u00001 1 4 drafty quote booked in rs', 'Quote for MAM Drafty service has been approved. Our scheduling team has locked in a date with the client and/or the quote requestor for a Quote Visit to consult, measure, design, draft and finalise a scope of work for your proposed home modification.'],
+  ['not started\u00001 1 5 drafty order offered date rs 3d', 'Quote for the job has been approved for build. Our scheduling team has contacted the client and/or the quote requestor and offered available date(s) to organise an Order Visit (Pre-Construction Site Meeting) to firm up the measures, plan, order and scope of work. We are awaiting confirmation from the client and/or the quote requestor.'],
+  ['not started\u00001 1 6 drafty quote offered date rs 3d', 'Quote for MAM Drafty service has been approved. Our scheduling team has contacted the client and/or the quote requestor and offered available date(s) to organise a Quote Visit to consult, measure, design, draft and finalise a scope of work for your proposed home modification. We are awaiting confirmation from the client and/or the quote requestor.'],
+  ['not started\u00001 1 7 drafty measure complete drft 1d', 'Drafty site visit has been completed and your job is currently with our estimator. Please contact our estimating team at majorquotes@mobilityaccess.com.au for more information.'],
+  ['not started\u00001 2 measure complete project doc req ca 5d', 'Pre-construction site meeting completed. Our Contract Administrator will be in touch with the client soon to finalise the project documents.'],
+  ['not started\u00001 3 project doc in progress ca 5days', 'Pre-construction site meeting completed. We\'re now preparing your project documents.'],
+  ['not started\u00001 5 1 to be booked no custom materials bs 5d', 'Quote for the job has been approved for build. Project documentation is complete. Our scheduling team will be in touch with the client soon to lock in a suitable date to commence works onsite.'],
+  ['not started\u00001 5 2 to be booked with custom materials bs 5d', 'Quote for the job has been approved for build. Project documentation is complete. We are finalising the custom materials for your job. Our scheduling team will be in touch with the client soon to lock in a suitable date to commence works onsite.'],
+  ['not started\u00001 5 3 to be booked callbacks bs 5d', 'We have acknowledged your complaint. Our scheduler is in the process of organising a suitable date to inspect, assess and/or repair.'],
+  ['not started\u00001 6 1 booked in apply ndis payment mgr asap', 'We are in the process of lodging a claim with NDIS. Please contact our admin team at mam@mobilityaccess.com.au.'],
+  ['not started\u00001 6 2 booked in ndis payment applied mgr asap', 'We have lodged a claim through the NDIS portal and are awaiting payment. Please contact our admin team at mam@mobilityaccess.com.au.'],
+  ['not started\u00001 6 3 booked in start date confirmed bs', 'The start date for onsite works has been booked with the client.'],
+  ['not started\u0000external contractor', 'We are currently arranging an external contractor for this job.'],
+  ['not started\u0000external supplier', 'We are currently arranging an external supplier for this job.'],
+  ['in progress\u0000', 'Please contact our admin team at majorquotes@mobilityaccess.com.au'],
+  ['in progress\u00001 2 measure complete project doc req ca 5d', 'Pre-construction site meeting completed. Our Contract Administrator will be in touch with the client soon to finalise the project documents.'],
+  ['in progress\u00001 3 project doc in progress ca 5days', 'Pre-construction site meeting completed. We\'re now preparing your project documents.'],
+  ['in progress\u00001 5 1 to be booked no custom materials bs 5d', 'Quote for the job has been approved for build. Project documentation is complete. Our scheduling team will be in touch with the client soon to lock in a suitable date to commence works onsite.'],
+  ['in progress\u00001 5 2 to be booked with custom materials bs 5d', 'Quote for the job has been approved for build. Project documentation is complete. We are finalising the custom materials for your job. Our scheduling team will be in touch with the client soon to lock in a suitable date to commence works onsite.'],
+  ['in progress\u00001 5 3 to be booked callbacks bs 5d', 'We have received and acknowledged your complaint. Our scheduler is in the process of organising a suitable date to inspect, assess and/or repair.'],
+  ['in progress\u00001 6 1 booked in apply ndis payment mgr asap', 'We are in the process of lodging a claim with NDIS. Please contact our admin team at mam@mobilityaccess.com.au.'],
+  ['in progress\u00001 6 2 booked in ndis payment applied mgr asap', 'We have lodged a claim through the NDIS portal and are awaiting payment. Please contact our admin team at mam@mobilityaccess.com.au.'],
+  ['in progress\u00001 6 3 booked in start date confirmed bs', 'The start date for onsite works has been booked with the client.'],
+  ['in progress\u00001 7 1 under construction w1 w3 bs', 'Construction work is in progress.'],
+  ['in progress\u00001 7 2 under construction w4 completion bs', 'Construction work is in progress.'],
+  ['in progress\u00001 7 3 under construction pending minor works', 'Construction work is mostly complete, with minor works remaining.'],
+  ['in progress\u0000external contractor', 'We are currently arranging an external contractor for this job.'],
+  ['in progress\u0000external supplier', 'We are currently arranging an external supplier for this job.'],
+  ['pending\u0000', 'Please contact our admin team at majorquotes@mobilityaccess.com.au'],
+  ['pending\u00001 1 8 drafty plan pending drft 2d', 'Drafty site visit is complete. Drafty is finalising the plan for your job.'],
+  ['pending\u00001 2 measure complete project doc req ca 5d', 'Pre-construction site meeting completed. Our Contract Administrator will be in touch with the client soon to finalise the project documents.'],
+  ['pending\u00001 3 project doc in progress ca 5days', 'Pre-construction site meeting completed. We\'re now preparing your project documents.'],
+  ['pending\u00001 4 1 on hold variations approval tbc ca 14d', 'On hold — we are awaiting approval for a variation to the scope of work.'],
+  ['pending\u00001 4 2 on hold increase approval req ca 14 day', 'On hold — we are awaiting approval for a cost increase to the job.'],
+  ['pending\u00001 4 3 on hold pending contract deposits ca 5d', 'On hold — we are awaiting your signed building contract and/or deposit payment.'],
+  ['pending\u00001 4 4 on hold by client ot fb ca 15d', 'On hold — we are awaiting confirmation from you, your OT or your funding body.'],
+  ['pending\u00001 4 5 on hold awaiting rollover confirmation', 'On hold — we are awaiting confirmation of funding from your funding body.'],
+  ['pending\u00001 5 3 to be booked callbacks bs 5d', 'We have received and acknowledged your complaint. Our scheduler is in the process of organising a suitable date to inspect, assess and/or repair.'],
+  ['pending\u00002 4 make custom item mam manufacturing majors', 'We have your custom item(s) currently being manufactured. We\'ll be in touch as soon as the job is ready for installation.'],
+  ['pending\u00004 1 completed job drafty to assess rs', 'Job completed. No pending items on our end.'],
+  ['pending\u00004 2 completed bath project coordinator to visit', 'Job completed. No pending items on our end.'],
+  ['pending\u0000external contractor', 'We are currently arranging an external contractor for this job.'],
+  ['pending\u0000external supplier', 'We are currently arranging an external supplier for this job.'],
+  ['pending\u0000measure complete', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+  ['pending\u0000waiting for deposit payment', 'On hold — we are awaiting deposit and/or payment.'],
+  ['completed\u0000', 'Job completed.'],
+  ['completed\u0000coc required', 'Job completed. A certificate of completion is being organised.'],
+  ['completed\u0000coc uploaded', 'Job completed. A certificate of completion is being organised.'],
+  ['completed\u0000council asset refund', 'Job completed. Council Asset Refund pending on completion of defects liability period.'],
+  ['completed\u0000insurance application req', 'Job complete'],
+  ['completed\u0000invoiced penny to approve', 'Job complete'],
+  ['completed\u0000outstanding invoice', 'Job complete'],
+  ['completed\u0000refund amount tbc', 'Job complete'],
+  ['completed\u0000refund process', 'Job complete'],
+  ['completed\u0000vmia cert pending', 'Job complete'],
+  ['archived\u0000', 'Job complete'],
+]);
+
+function majorTaskPortalKey(task) {
+  const status = normaliseName(task?.status || task?.taskstatus || '');
+  const substatus = normaliseName(taskSubstatus(task));
+  return status + '\u0000' + substatus;
+}
+
+export function majorTaskPortalWording(task) {
+  return MAJOR_TASK_PORTAL_WORDING.get(majorTaskPortalKey(task)) || '';
+}
+
+/**
  * Team-approved Minor Mods portal copy, keyed by AroFlo Task status/substatus.
  * The strings intentionally match the reviewed workbook verbatim.
  */
@@ -480,7 +558,73 @@ export function deriveJobStatus(
   return approvedTaskStatus(quote, unit, task, hasSiteVisit, progress);
 }
 
+function applyMajorTaskPresentation(status, task, message) {
+  const { schedulerSlaType: _schedulerSlaType, ...presented } = status;
+  const taskState = normaliseName(task?.status || task?.taskstatus || '');
+  const substatus = normaliseName(taskSubstatus(task));
+  const complete = taskState === 'completed' || taskState === 'archived' ||
+    substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
+
+  if (complete) {
+    return {
+      ...presented,
+      step: presented.steps.length,
+      label: 'Job complete',
+      message,
+      tone: 'complete',
+    };
+  }
+
+  if (substatus.includes('on hold') || substatus === 'waiting for deposit payment') {
+    return {
+      ...presented,
+      step: 2,
+      label: 'Approved — on hold',
+      message,
+      tone: 'hold',
+    };
+  }
+
+  if (substatus.includes('booked in')) {
+    return {
+      ...presented,
+      step: 3,
+      label: 'Booked',
+      message,
+      tone: 'booked',
+    };
+  }
+
+  if (substatus.includes('under construction')) {
+    return {
+      ...presented,
+      step: 3,
+      label: 'In progress',
+      message,
+      tone: 'approved',
+    };
+  }
+
+  if (substatus.includes('manufacturing')) {
+    return {
+      ...presented,
+      step: 2,
+      label: 'In progress — manufacturing',
+      message,
+      tone: 'approved',
+    };
+  }
+
+  return { ...presented, message };
+}
+
 function approvedTaskStatus(quote, unit, task, hasSiteVisit, progress) {
+  const result = approvedTaskStatusDefault(quote, unit, task, hasSiteVisit, progress);
+  const reviewedMessage = unit === 'major' ? majorTaskPortalWording(task) : '';
+  return reviewedMessage ? applyMajorTaskPresentation(result, task, reviewedMessage) : result;
+}
+
+function approvedTaskStatusDefault(quote, unit, task, hasSiteVisit, progress) {
   const { steps: jobSteps, customMinor, customStep } = progress;
   const taskState = String(task?.status || task?.taskstatus || '').trim().toLowerCase();
   const taskSub = taskSubstatus(task).trim().toLowerCase();
@@ -876,13 +1020,14 @@ export class QuoteService {
       await loadRelevantTask();
 
       const taskSub = taskSubstatus(task).trim().toLowerCase();
-      // Reviewed Minor Mods messages already encode these milestones. Avoid a
+      // Reviewed customer messages already encode these milestones. Avoid a
       // schedule query when every quote's output is independent of visit history.
       // Mixed/unapproved quotes and actual bookings still need their schedules.
-      const allUseReviewedWording = quotes.every((quote) =>
-        String(quote.status || '').trim().toLowerCase() === 'approved' &&
-        quoteBusinessUnit(quote) === 'minor' && !!minorTaskPortalWording(task)
-      );
+      const allUseReviewedWording = quotes.every((quote) => {
+        if (String(quote.status || '').trim().toLowerCase() !== 'approved') return false;
+        const unit = quoteBusinessUnit(quote);
+        return unit === 'minor' ? !!minorTaskPortalWording(task) : !!majorTaskPortalWording(task);
+      });
       const needsScheduleHistory = task && (
         isBookedSubstatus(taskSub) ||
         (!allUseReviewedWording && (

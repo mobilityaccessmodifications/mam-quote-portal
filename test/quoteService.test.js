@@ -5,6 +5,7 @@ import {
   sanitiseQuote,
   deriveStatus,
   deriveJobStatus,
+  majorTaskPortalWording,
   minorTaskPortalWording,
   quoteCreatedTs,
   quoteContactName,
@@ -190,6 +191,61 @@ test('custom Minor Mods uses the complete quote-to-install progress stages', () 
   });
   assert.deepEqual(stockBooked.steps, ['Quoted', 'Approved', 'Booked', 'Complete']);
   assert.equal(stockBooked.step, 3);
+});
+
+test('Major Mods uses the reviewed customer wording and presentation rules', () => {
+  const scenarios = [
+    ['Not Started', '', 'Please contact our admin team at mam@mobilityaccess.com.au'],
+    ['Not Started', '1.1.5 DRAFTY ORDER - OFFERED DATE [RS-3D]', 'Quote for the job has been approved for build. Our scheduling team has contacted the client and/or the quote requestor and offered available date(s) to organise an Order Visit (Pre-Construction Site Meeting) to firm up the measures, plan, order and scope of work. We are awaiting confirmation from the client and/or the quote requestor.'],
+    ['Not Started', '1.2 MEASURE COMPLETE - PROJECT DOC. REQ. [CA-5D]', 'Pre-construction site meeting completed. Our Contract Administrator will be in touch with the client soon to finalise the project documents.'],
+    ['In Progress', '1.6.3 BOOKED IN  - START DATE CONFIRMED [BS]', 'The start date for onsite works has been booked with the client.'],
+    ['In Progress', '1.7.3 UNDER CONSTRUCTION (Pending Minor Works)', 'Construction work is mostly complete, with minor works remaining.'],
+    ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', "We have your custom item(s) currently being manufactured. We'll be in touch as soon as the job is ready for installation."],
+    ['Pending', 'Measure Complete', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
+    ['Pending', '4.1 Completed Job - Drafty to Assess [RS]', 'Job completed. No pending items on our end.'],
+    ['Completed', 'CoC Required', 'Job completed. A certificate of completion is being organised.'],
+    ['Completed', 'Refund | Amount TBC', 'Job complete'],
+    ['Archived', '', 'Job complete'],
+  ];
+
+  for (const [status, substatus, wording] of scenarios) {
+    const task = { status, substatus: { substatus } };
+    assert.equal(majorTaskPortalWording(task), wording);
+    assert.equal(deriveJobStatus('Approved', '', 'major', task).message, wording);
+  }
+
+  const booked = deriveJobStatus('Approved', '', 'major', {
+    status: 'In Progress',
+    substatus: { substatus: '1.6.3 BOOKED IN  - START DATE CONFIRMED [BS]' },
+  });
+  assert.equal(booked.step, 3);
+  assert.equal(booked.label, 'Booked');
+
+  const onHold = deriveJobStatus('Approved', '', 'major', {
+    status: 'Pending',
+    substatus: { substatus: '1.4.2 ON HOLD - INCREASE APPROVAL REQ. [CA-14 Day]' },
+  });
+  assert.equal(onHold.step, 2);
+  assert.equal(onHold.label, 'Approved — on hold');
+
+  const underConstruction = deriveJobStatus('Approved', '', 'major', {
+    status: 'In Progress',
+    substatus: { substatus: '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]' },
+  });
+  assert.equal(underConstruction.step, 3);
+  assert.equal(underConstruction.label, 'In progress');
+
+  const trainingCompletion = deriveJobStatus('Approved', '', 'major', {
+    status: 'Pending',
+    substatus: { substatus: '4.2 Completed Bath - Project Coordinator to Visit' },
+  });
+  assert.equal(trainingCompletion.step, 4);
+  assert.equal(trainingCompletion.label, 'Job complete');
+
+  assert.equal(majorTaskPortalWording({
+    status: 'Completed',
+    substatus: { substatus: 'Ready to invoice' },
+  }), '', 'hidden archived substatuses must not become reviewed customer rules');
 });
 
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
