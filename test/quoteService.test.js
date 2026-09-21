@@ -203,7 +203,7 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
     ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', "We have your custom item(s) currently being manufactured. We'll be in touch as soon as the job is ready for installation."],
     ['Pending', 'Measure Complete', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
     ['Pending', '4.1 Completed Job - Drafty to Assess [RS]', 'Job completed. No pending items on our end.'],
-    ['Completed', 'CoC Required', 'Job completed. A certificate of completion is being organised.'],
+    ['Completed', 'CoC Required', 'Job complete'],
     ['Completed', 'Refund | Amount TBC', 'Job complete'],
     ['Archived', '', 'Job complete'],
   ];
@@ -242,10 +242,21 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   assert.equal(trainingCompletion.step, 4);
   assert.equal(trainingCompletion.label, 'Job complete');
 
-  assert.equal(majorTaskPortalWording({
-    status: 'Completed',
-    substatus: { substatus: 'Ready to invoice' },
-  }), '', 'hidden archived substatuses must not become reviewed customer rules');
+  for (const substatus of ['', 'CoC Required', 'Council Asset Refund', 'Ready to invoice', 'Any future substatus']) {
+    const task = { status: 'Completed', substatus: { substatus } };
+    const completed = deriveJobStatus('Approved', '', 'major', task);
+    assert.equal(majorTaskPortalWording(task), 'Job complete');
+    assert.equal(completed.label, 'Job complete');
+    assert.equal(completed.message, 'Job complete');
+    assert.equal(completed.step, completed.steps.length);
+  }
+
+  const singularComplete = deriveJobStatus('Approved', '', 'major', {
+    status: 'Complete',
+    substatus: { substatus: 'Anything' },
+  });
+  assert.equal(singularComplete.label, 'Job complete');
+  assert.equal(singularComplete.message, 'Job complete');
 });
 
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
