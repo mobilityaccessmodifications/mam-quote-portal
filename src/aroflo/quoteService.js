@@ -426,16 +426,6 @@ const MAJOR_TASK_PORTAL_WORDING = new Map([
   ['pending\u0000external supplier', 'We are currently arranging an external supplier for this job.'],
   ['pending\u0000measure complete', 'We have taken measurements for custom manufactured items. We will be in touch with the client as soon as the job is ready for installation.'],
   ['pending\u0000waiting for deposit payment', 'On hold — we are awaiting deposit and/or payment.'],
-  ['completed\u0000', 'Job completed.'],
-  ['completed\u0000coc required', 'Job completed. A certificate of completion is being organised.'],
-  ['completed\u0000coc uploaded', 'Job completed. A certificate of completion is being organised.'],
-  ['completed\u0000council asset refund', 'Job completed. Council Asset Refund pending on completion of defects liability period.'],
-  ['completed\u0000insurance application req', 'Job complete'],
-  ['completed\u0000invoiced penny to approve', 'Job complete'],
-  ['completed\u0000outstanding invoice', 'Job complete'],
-  ['completed\u0000refund amount tbc', 'Job complete'],
-  ['completed\u0000refund process', 'Job complete'],
-  ['completed\u0000vmia cert pending', 'Job complete'],
   ['archived\u0000', 'Job complete'],
 ]);
 
@@ -446,6 +436,8 @@ function majorTaskPortalKey(task) {
 }
 
 export function majorTaskPortalWording(task) {
+  const taskState = normaliseName(task?.status || task?.taskstatus || '');
+  if (taskState === 'completed' || taskState === 'complete') return 'Job complete';
   return MAJOR_TASK_PORTAL_WORDING.get(majorTaskPortalKey(task)) || '';
 }
 
@@ -562,7 +554,7 @@ function applyMajorTaskPresentation(status, task, message) {
   const { schedulerSlaType: _schedulerSlaType, ...presented } = status;
   const taskState = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
-  const complete = taskState === 'completed' || taskState === 'archived' ||
+  const complete = taskState === 'completed' || taskState === 'complete' || taskState === 'archived' ||
     substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
 
   if (complete) {
