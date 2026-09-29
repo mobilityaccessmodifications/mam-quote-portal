@@ -64,7 +64,10 @@ test('sanitiseQuote maps real AroFlo fields and the per-unit status to customer-
   assert.equal(out.unitLabel, 'Major home modification');
   assert.equal(out.statusLabel, 'Quoted — awaiting approval');
   assert.equal(out.step, 1);
-  assert.deepEqual(out.steps, ['Quoted', 'Approved', 'Booked', 'Complete']);
+  assert.deepEqual(out.steps, [
+    'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
+    'Scheduling', 'Construction', 'Completion', 'Warranty',
+  ]);
   // Internal cost/margin fields must NOT leak through.
   assert.equal(out.totalprofit, undefined);
   assert.equal(out.materialcostex, undefined);
@@ -218,28 +221,32 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
     status: 'In Progress',
     substatus: { substatus: '1.6.3 BOOKED IN  - START DATE CONFIRMED [BS]' },
   });
-  assert.equal(booked.step, 3);
+  assert.deepEqual(booked.steps, [
+    'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
+    'Scheduling', 'Construction', 'Completion', 'Warranty',
+  ]);
+  assert.equal(booked.step, 5);
   assert.equal(booked.label, 'Booked');
 
   const onHold = deriveJobStatus('Approved', '', 'major', {
     status: 'Pending',
     substatus: { substatus: '1.4.2 ON HOLD - INCREASE APPROVAL REQ. [CA-14 Day]' },
   });
-  assert.equal(onHold.step, 2);
+  assert.equal(onHold.step, 4);
   assert.equal(onHold.label, 'Approved — on hold');
 
   const underConstruction = deriveJobStatus('Approved', '', 'major', {
     status: 'In Progress',
     substatus: { substatus: '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]' },
   });
-  assert.equal(underConstruction.step, 3);
+  assert.equal(underConstruction.step, 6);
   assert.equal(underConstruction.label, 'In progress');
 
   const trainingCompletion = deriveJobStatus('Approved', '', 'major', {
     status: 'Pending',
     substatus: { substatus: '4.2 Completed Bath - Project Coordinator to Visit' },
   });
-  assert.equal(trainingCompletion.step, 4);
+  assert.equal(trainingCompletion.step, 7);
   assert.equal(trainingCompletion.label, 'Job complete');
 
   for (const substatus of ['', 'CoC Required', 'Council Asset Refund', 'Ready to invoice', 'Any future substatus']) {
@@ -248,7 +255,7 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
     assert.equal(majorTaskPortalWording(task), 'Job complete');
     assert.equal(completed.label, 'Job complete');
     assert.equal(completed.message, 'Job complete');
-    assert.equal(completed.step, completed.steps.length);
+    assert.equal(completed.step, 7);
   }
 
   const singularComplete = deriveJobStatus('Approved', '', 'major', {
@@ -257,6 +264,39 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   });
   assert.equal(singularComplete.label, 'Job complete');
   assert.equal(singularComplete.message, 'Job complete');
+  assert.equal(singularComplete.step, 7);
+
+  const warranty = deriveJobStatus('Approved', '', 'major', {
+    status: 'Archived',
+    substatus: { substatus: '' },
+  });
+  assert.equal(warranty.step, 8);
+  assert.equal(warranty.steps[warranty.step - 1], 'Warranty');
+});
+
+test('Major Mods V2 workflow maps task substatuses to the correct stage', () => {
+  const scenarios = [
+    ['Not Started', '1.1.1 DRAFTY ORDER - TO BE BOOKED [RS-3D]', 3],
+    ['Pending', '1.1.8 DRAFTY - PLAN PENDING [DRFT-2D]', 3],
+    ['Not Started', '1.2 MEASURE COMPLETE - PROJECT DOC. REQ. [CA-5D]', 4],
+    ['Pending', '1.4.4 ON HOLD - BY CLIENT/OT/FB [CA-15D]', 4],
+    ['Not Started', '1.5.2 TO BE BOOKED - WITH CUSTOM MATERIALS [BS-5D]', 5],
+    ['In Progress', '1.6.3 BOOKED IN - START DATE CONFIRMED [BS]', 5],
+    ['In Progress', '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]', 6],
+    ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', 6],
+    ['Completed', 'CoC Required', 7],
+    ['Archived', '', 8],
+  ];
+
+  for (const [status, substatus, step] of scenarios) {
+    assert.equal(deriveJobStatus('Approved', '', 'major', {
+      status,
+      substatus: { substatus },
+    }).step, step, `${status} / ${substatus}`);
+  }
+
+  assert.equal(deriveJobStatus('In Progress', '', 'major').step, 1);
+  assert.equal(deriveJobStatus('Pending Approval', '', 'major').step, 1);
 });
 
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
@@ -398,7 +438,7 @@ test('job 119613 field shapes produce a safe location and booking', () => {
 
   const out = sanitiseQuote(quote, { task, booking: sanitiseBooking(schedule) });
   assert.equal(out.statusLabel, 'Booked');
-  assert.equal(out.step, 3);
+  assert.equal(out.step, 5);
   assert.equal(out.booking.tradeName, 'Lee Taylor');
   assert.equal(JSON.stringify(out).includes('internal wording'), false);
 });

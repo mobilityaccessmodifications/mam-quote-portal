@@ -279,6 +279,25 @@ function isExternalContractor(task) {
 
 const STANDARD_JOB_STEPS = ['Quoted', 'Approved', 'Booked', 'Complete'];
 const CUSTOM_MINOR_JOB_STEPS = ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed'];
+const MAJOR_JOB_STEPS = [
+  'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
+  'Scheduling', 'Construction', 'Completion', 'Warranty',
+];
+
+function majorTaskStageStep(task) {
+  const status = normaliseName(task?.status || task?.taskstatus || '');
+  const substatus = normaliseName(taskSubstatus(task));
+
+  if (status === 'archived') return 8;
+  if (status === 'completed' || status === 'complete' ||
+      substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath')) return 7;
+  if (/^1 1 /.test(substatus)) return 3;
+  if (/^1 [234] /.test(substatus) || substatus === 'measure complete') return 4;
+  if (/^1 [56] /.test(substatus) || substatus === 'booked') return 5;
+  if (/^1 7 /.test(substatus) || /^2 4 /.test(substatus) ||
+      substatus === 'external contractor' || substatus === 'external supplier') return 6;
+  return 2;
+}
 
 /**
  * Custom Minor Mods uses two separate bookings in AroFlo:
@@ -304,7 +323,7 @@ function jobProgress(unit, task, hasSiteVisit = false) {
   const customMinor = unit === 'minor' && isCustomInstall(task);
   return {
     customMinor,
-    steps: customMinor ? CUSTOM_MINOR_JOB_STEPS : STANDARD_JOB_STEPS,
+    steps: customMinor ? CUSTOM_MINOR_JOB_STEPS : unit === 'major' ? MAJOR_JOB_STEPS : STANDARD_JOB_STEPS,
     customStep: customMinor ? customMinorProgressStep(task, hasSiteVisit) : null,
   };
 }
@@ -554,13 +573,14 @@ function applyMajorTaskPresentation(status, task, message) {
   const { schedulerSlaType: _schedulerSlaType, ...presented } = status;
   const taskState = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
+  const stageStep = majorTaskStageStep(task);
   const complete = taskState === 'completed' || taskState === 'complete' || taskState === 'archived' ||
     substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
 
   if (complete) {
     return {
       ...presented,
-      step: presented.steps.length,
+      step: stageStep,
       label: 'Job complete',
       message,
       tone: 'complete',
@@ -570,7 +590,7 @@ function applyMajorTaskPresentation(status, task, message) {
   if (substatus.includes('on hold') || substatus === 'waiting for deposit payment') {
     return {
       ...presented,
-      step: 2,
+      step: stageStep,
       label: 'Approved — on hold',
       message,
       tone: 'hold',
@@ -580,7 +600,7 @@ function applyMajorTaskPresentation(status, task, message) {
   if (substatus.includes('booked in')) {
     return {
       ...presented,
-      step: 3,
+      step: stageStep,
       label: 'Booked',
       message,
       tone: 'booked',
@@ -590,7 +610,7 @@ function applyMajorTaskPresentation(status, task, message) {
   if (substatus.includes('under construction')) {
     return {
       ...presented,
-      step: 3,
+      step: stageStep,
       label: 'In progress',
       message,
       tone: 'approved',
@@ -600,20 +620,22 @@ function applyMajorTaskPresentation(status, task, message) {
   if (substatus.includes('manufacturing')) {
     return {
       ...presented,
-      step: 2,
+      step: stageStep,
       label: 'In progress — manufacturing',
       message,
       tone: 'approved',
     };
   }
 
-  return { ...presented, message };
+  return { ...presented, step: stageStep, message };
 }
 
 function approvedTaskStatus(quote, unit, task, hasSiteVisit, progress) {
   const result = approvedTaskStatusDefault(quote, unit, task, hasSiteVisit, progress);
   const reviewedMessage = unit === 'major' ? majorTaskPortalWording(task) : '';
-  return reviewedMessage ? applyMajorTaskPresentation(result, task, reviewedMessage) : result;
+  if (unit !== 'major') return result;
+  if (reviewedMessage) return applyMajorTaskPresentation(result, task, reviewedMessage);
+  return { ...result, steps: MAJOR_JOB_STEPS, step: majorTaskStageStep(task) };
 }
 
 function approvedTaskStatusDefault(quote, unit, task, hasSiteVisit, progress) {
