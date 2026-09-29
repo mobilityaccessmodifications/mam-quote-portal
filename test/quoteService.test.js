@@ -66,7 +66,7 @@ test('sanitiseQuote maps real AroFlo fields and the per-unit status to customer-
   assert.equal(out.step, 1);
   assert.deepEqual(out.steps, [
     'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-    'Scheduling', 'Construction', 'Completion', 'Warranty',
+    'Scheduling', 'Construction', 'Completion',
   ]);
   // Internal cost/margin fields must NOT leak through.
   assert.equal(out.totalprofit, undefined);
@@ -223,7 +223,7 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   });
   assert.deepEqual(booked.steps, [
     'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-    'Scheduling', 'Construction', 'Completion', 'Warranty',
+    'Scheduling', 'Construction', 'Completion',
   ]);
   assert.equal(booked.step, 5);
   assert.equal(booked.label, 'Booked');
@@ -266,12 +266,12 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   assert.equal(singularComplete.message, 'Job complete');
   assert.equal(singularComplete.step, 7);
 
-  const warranty = deriveJobStatus('Approved', '', 'major', {
+  const archived = deriveJobStatus('Approved', '', 'major', {
     status: 'Archived',
     substatus: { substatus: '' },
   });
-  assert.equal(warranty.step, 8);
-  assert.equal(warranty.steps[warranty.step - 1], 'Warranty');
+  assert.equal(archived.step, 7);
+  assert.equal(archived.steps[archived.step - 1], 'Completion');
 });
 
 test('Major Mods V2 workflow maps task substatuses to the correct stage', () => {
@@ -285,7 +285,7 @@ test('Major Mods V2 workflow maps task substatuses to the correct stage', () => 
     ['In Progress', '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]', 6],
     ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', 6],
     ['Completed', 'CoC Required', 7],
-    ['Archived', '', 8],
+    ['Archived', '', 7],
   ];
 
   for (const [status, substatus, step] of scenarios) {
