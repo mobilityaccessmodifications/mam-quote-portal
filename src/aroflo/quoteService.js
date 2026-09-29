@@ -281,14 +281,14 @@ const STANDARD_JOB_STEPS = ['Quoted', 'Approved', 'Booked', 'Complete'];
 const CUSTOM_MINOR_JOB_STEPS = ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed'];
 const MAJOR_JOB_STEPS = [
   'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-  'Scheduling', 'Construction', 'Completion', 'Warranty',
+  'Scheduling', 'Construction', 'Completion',
 ];
 
 function majorTaskStageStep(task) {
   const status = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
 
-  if (status === 'archived') return 8;
+  if (status === 'archived') return 7;
   if (status === 'completed' || status === 'complete' ||
       substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath')) return 7;
   if (/^1 1 /.test(substatus)) return 3;
