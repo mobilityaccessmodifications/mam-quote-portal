@@ -274,6 +274,42 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   assert.equal(archived.steps[archived.step - 1], 'Completion');
 });
 
+test('Major Mods plain completion substatuses agree with the final stage', () => {
+  for (const status of ['Pending', 'In Progress', 'Not Started']) {
+    for (const substatus of ['Complete', 'Completed']) {
+      const result = deriveJobStatus('Approved', '', 'major', { status, substatus });
+      assert.equal(result.label, 'Job complete');
+      assert.equal(result.steps[result.step - 1], 'Completion');
+      assert.equal(result.schedulerSlaType, undefined);
+    }
+  }
+});
+
+test('Major Mods archived tasks ignore retained substatuses and booking promises', () => {
+  for (const substatus of ['', 'Ready to invoice', 'On hold', 'External Contractor', 'Any future substatus']) {
+    const task = { status: 'Archived', substatus: { substatus } };
+    const result = deriveJobStatus('Approved', '', 'major', task);
+    assert.equal(majorTaskPortalWording(task), 'Job complete');
+    assert.equal(result.label, 'Job complete');
+    assert.equal(result.message, 'Job complete');
+    assert.equal(result.tone, 'complete');
+    assert.equal(result.steps[result.step - 1], 'Completion');
+    assert.equal(result.schedulerSlaType, undefined);
+  }
+});
+
+test('Rejected Major Mods retain seven stages without implying approval', () => {
+  const result = deriveJobStatus('Rejected', '', 'major');
+  assert.deepEqual(result.steps, [
+    'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
+    'Scheduling', 'Construction', 'Completion',
+  ]);
+  assert.equal(result.step, 1);
+  assert.equal(result.tone, 'declined');
+  assert.equal(result.label, 'Not proceeding');
+  assert.equal(result.schedulerSlaType, undefined);
+});
+
 test('Major Mods V2 workflow maps task substatuses to the correct stage', () => {
   const scenarios = [
     ['Not Started', '1.1.1 DRAFTY ORDER - TO BE BOOKED [RS-3D]', 3],
