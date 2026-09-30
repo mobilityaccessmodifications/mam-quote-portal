@@ -284,13 +284,17 @@ const MAJOR_JOB_STEPS = [
   'Scheduling', 'Construction', 'Completion',
 ];
 
-function majorTaskStageStep(task) {
+function majorTaskIsComplete(task) {
   const status = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
+  return status === 'archived' || status === 'completed' || status === 'complete' ||
+    substatus === 'completed' || substatus === 'complete' ||
+    substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
+}
 
-  if (status === 'archived') return 7;
-  if (status === 'completed' || status === 'complete' ||
-      substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath')) return 7;
+function majorTaskStageStep(task) {
+  const substatus = normaliseName(taskSubstatus(task));
+  if (majorTaskIsComplete(task)) return MAJOR_JOB_STEPS.length;
   if (/^1 1 /.test(substatus)) return 3;
   if (/^1 [234] /.test(substatus) || substatus === 'measure complete') return 4;
   if (/^1 [56] /.test(substatus) || substatus === 'booked') return 5;
@@ -456,7 +460,7 @@ function majorTaskPortalKey(task) {
 
 export function majorTaskPortalWording(task) {
   const taskState = normaliseName(task?.status || task?.taskstatus || '');
-  if (taskState === 'completed' || taskState === 'complete') return 'Job complete';
+  if (taskState === 'completed' || taskState === 'complete' || taskState === 'archived') return 'Job complete';
   return MAJOR_TASK_PORTAL_WORDING.get(majorTaskPortalKey(task)) || '';
 }
 
@@ -540,7 +544,9 @@ export function deriveJobStatus(
 ) {
   const quote = deriveStatus(quoteStatus, quoteSubstatusText, unit);
   const quoteState = String(quoteStatus || '').trim().toLowerCase();
-  if (quoteState === 'rejected') return { ...quote, tone: 'declined' };
+  if (quoteState === 'rejected') {
+    return { ...quote, ...(unit === 'major' ? { steps: MAJOR_JOB_STEPS, step: 1 } : {}), tone: 'declined' };
+  }
 
   const progress = jobProgress(unit, task, hasSiteVisit);
   const jobSteps = progress.steps;
@@ -571,11 +577,9 @@ export function deriveJobStatus(
 
 function applyMajorTaskPresentation(status, task, message) {
   const { schedulerSlaType: _schedulerSlaType, ...presented } = status;
-  const taskState = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
   const stageStep = majorTaskStageStep(task);
-  const complete = taskState === 'completed' || taskState === 'complete' || taskState === 'archived' ||
-    substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
+  const complete = majorTaskIsComplete(task);
 
   if (complete) {
     return {
