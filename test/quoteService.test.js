@@ -65,8 +65,8 @@ test('sanitiseQuote maps real AroFlo fields and the per-unit status to customer-
   assert.equal(out.statusLabel, 'Quoted — awaiting approval');
   assert.equal(out.step, 1);
   assert.deepEqual(out.steps, [
-    'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-    'Scheduling', 'Construction', 'Completion',
+    'Quoting Stage', 'Approval Stage', 'Project Documentation Stage', 'Construction Stage',
+    'Warranty Stage',
   ]);
   // Internal cost/margin fields must NOT leak through.
   assert.equal(out.totalprofit, undefined);
@@ -222,31 +222,32 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
     substatus: { substatus: '1.6.3 BOOKED IN  - START DATE CONFIRMED [BS]' },
   });
   assert.deepEqual(booked.steps, [
-    'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-    'Scheduling', 'Construction', 'Completion',
+    'Quoting Stage', 'Approval Stage', 'Project Documentation Stage', 'Construction Stage',
+    'Warranty Stage',
   ]);
-  assert.equal(booked.step, 5);
+  assert.equal(booked.step, 3);
   assert.equal(booked.label, 'Booked');
 
   const onHold = deriveJobStatus('Approved', '', 'major', {
     status: 'Pending',
     substatus: { substatus: '1.4.2 ON HOLD - INCREASE APPROVAL REQ. [CA-14 Day]' },
   });
-  assert.equal(onHold.step, 4);
+  assert.equal(onHold.step, 3);
   assert.equal(onHold.label, 'Approved — on hold');
 
   const underConstruction = deriveJobStatus('Approved', '', 'major', {
     status: 'In Progress',
     substatus: { substatus: '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]' },
   });
-  assert.equal(underConstruction.step, 6);
+  assert.equal(underConstruction.step, 4);
+  assert.notEqual(underConstruction.tone, 'complete');
   assert.equal(underConstruction.label, 'In progress');
 
   const trainingCompletion = deriveJobStatus('Approved', '', 'major', {
     status: 'Pending',
     substatus: { substatus: '4.2 Completed Bath - Project Coordinator to Visit' },
   });
-  assert.equal(trainingCompletion.step, 7);
+  assert.equal(trainingCompletion.step, 5);
   assert.equal(trainingCompletion.label, 'Job complete');
 
   for (const substatus of ['', 'CoC Required', 'Council Asset Refund', 'Ready to invoice', 'Any future substatus']) {
@@ -255,7 +256,7 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
     assert.equal(majorTaskPortalWording(task), 'Job complete');
     assert.equal(completed.label, 'Job complete');
     assert.equal(completed.message, 'Job complete');
-    assert.equal(completed.step, 7);
+    assert.equal(completed.step, 5);
   }
 
   const singularComplete = deriveJobStatus('Approved', '', 'major', {
@@ -264,39 +265,81 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   });
   assert.equal(singularComplete.label, 'Job complete');
   assert.equal(singularComplete.message, 'Job complete');
-  assert.equal(singularComplete.step, 7);
+  assert.equal(singularComplete.step, 5);
 
   const archived = deriveJobStatus('Approved', '', 'major', {
     status: 'Archived',
     substatus: { substatus: '' },
   });
-  assert.equal(archived.step, 7);
-  assert.equal(archived.steps[archived.step - 1], 'Completion');
+  assert.equal(archived.step, 5);
+  assert.equal(archived.steps[archived.step - 1], 'Warranty Stage');
+  const archivedWithSubstatus = deriveJobStatus('Approved', '', 'major', {
+    status: 'Archived', substatus: { substatus: 'Internal follow-up' },
+  });
+  assert.equal(archivedWithSubstatus.step, 5);
+  assert.equal(archivedWithSubstatus.tone, 'complete');
+  assert.equal(archivedWithSubstatus.message, 'Job complete');
 });
 
-test('Major Mods V2 workflow maps task substatuses to the correct stage', () => {
+test('Major Mods uses exactly five stages through warranty', () => {
   const scenarios = [
     ['Not Started', '1.1.1 DRAFTY ORDER - TO BE BOOKED [RS-3D]', 3],
-    ['Pending', '1.1.8 DRAFTY - PLAN PENDING [DRFT-2D]', 3],
-    ['Not Started', '1.2 MEASURE COMPLETE - PROJECT DOC. REQ. [CA-5D]', 4],
-    ['Pending', '1.4.4 ON HOLD - BY CLIENT/OT/FB [CA-15D]', 4],
-    ['Not Started', '1.5.2 TO BE BOOKED - WITH CUSTOM MATERIALS [BS-5D]', 5],
-    ['In Progress', '1.6.3 BOOKED IN - START DATE CONFIRMED [BS]', 5],
-    ['In Progress', '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]', 6],
-    ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', 6],
-    ['Completed', 'CoC Required', 7],
-    ['Archived', '', 7],
+    ['Not Started', '1.1.2 DRAFTY QUOTE - TO BE BOOKED [RS-3D]', 1],
+    ['Not Started', '1.1.3 DRAFTY ORDER - BOOKED IN [RS]', 3],
+    ['Not Started', '1.1.4 DRAFTY QUOTE - BOOKED IN [RS]', 1],
+    ['Not Started', '1.1.5 DRAFTY ORDER - OFFERED DATE [RS-3D]', 3],
+    ['Not Started', '1.1.6 DRAFTY QUOTE - OFFERED DATE [RS-3D]', 1],
+    ['Not Started', '1.1.7 DRAFTY - MEASURE COMPLETE [DRFT-1D]', 1],
+    ['Pending', '1.1.8 DRAFTY - PLAN PENDING [DRFT-2D]', 1],
+    ['Not Started', '1.2 MEASURE COMPLETE - PROJECT DOC. REQ. [CA-5D]', 3],
+    ['In Progress', '1.3 PROJECT DOC. IN PROGRESS [CA-5Days]', 3],
+    ['Pending', '1.4.4 ON HOLD - BY CLIENT/OT/FB [CA-15D]', 3],
+    ['Not Started', '1.5.1 TO BE BOOKED - NO CUSTOM MATERIALS [BS-5D]', 3],
+    ['Not Started', '1.5.2 TO BE BOOKED - WITH CUSTOM MATERIALS [BS-5D]', 3],
+    ['In Progress', '1.5.3 TO BE BOOKED - CALLBACKS [BS-5D]', 4],
+    ['Not Started', '1.6.1 BOOKED IN - APPLY NDIS PAYMENT [MGR-ASAP]', 3],
+    ['Not Started', '1.6.2 BOOKED IN - NDIS PAYMENT APPLIED [MGR-ASAP]', 3],
+    ['In Progress', '1.6.3 BOOKED IN - START DATE CONFIRMED [BS]', 3],
+    ['Pending', 'Measure Complete', 3],
+    ['Not Started', 'Booked', 3],
+    ['Pending', 'Waiting for Deposit Payment', 3],
+    ['In Progress', '1.7.1 UNDER CONSTRUCTION (W1 - W3) [BS]', 4],
+    ['In Progress', '1.7.2 UNDER CONSTRUCTION (W4 - COMPLETION) [BS]', 4],
+    ['In Progress', '1.7.3 UNDER CONSTRUCTION (Pending Minor Works)', 4],
+    ['Pending', '2.4 Make Custom Item MAM Manufacturing (majors)', 4],
+    ['Not Started', 'External Contractor', 4],
+    ['Not Started', 'External Supplier', 4],
+    ['Pending', '4.1 Completed Job - Drafty to Assess [RS]', 5],
+    ['Pending', '4.2 Completed Bath - Project Coordinator to Visit', 5],
+    ['Pending', 'Complete', 5],
+    ['Pending', 'Completed', 5],
+    ['Completed', 'CoC Required', 5],
+    ['Archived', '', 5],
+    ['Not Started', '', 2],
   ];
 
   for (const [status, substatus, step] of scenarios) {
-    assert.equal(deriveJobStatus('Approved', '', 'major', {
+    const derived = deriveJobStatus('Approved', '', 'major', {
       status,
       substatus: { substatus },
-    }).step, step, `${status} / ${substatus}`);
+    });
+    assert.equal(derived.steps.length, 5, `${status} / ${substatus}`);
+    assert.equal(derived.step, step, `${status} / ${substatus}`);
   }
 
   assert.equal(deriveJobStatus('In Progress', '', 'major').step, 1);
-  assert.equal(deriveJobStatus('Pending Approval', '', 'major').step, 1);
+  assert.equal(deriveJobStatus('Pending Approval', '', 'major').step, 2);
+  assert.equal(deriveJobStatus('In Progress', '', 'major', null, { hasSiteVisit: true }).step, 1);
+  assert.equal(deriveJobStatus('Pending Approval', '', 'major', null, { hasSiteVisit: true }).step, 2);
+
+  const declined = deriveJobStatus('Rejected', 'Internal reason', 'major');
+  assert.deepEqual(declined.steps, [
+    'Quoting Stage', 'Approval Stage', 'Project Documentation Stage', 'Construction Stage',
+    'Warranty Stage',
+  ]);
+  assert.equal(declined.terminal, 'declined');
+  assert.equal(declined.label, 'Not proceeding');
+  assert.equal(declined.step, 0);
 });
 
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
@@ -438,7 +481,7 @@ test('job 119613 field shapes produce a safe location and booking', () => {
 
   const out = sanitiseQuote(quote, { task, booking: sanitiseBooking(schedule) });
   assert.equal(out.statusLabel, 'Booked');
-  assert.equal(out.step, 5);
+  assert.equal(out.step, 3);
   assert.equal(out.booking.tradeName, 'Lee Taylor');
   assert.equal(JSON.stringify(out).includes('internal wording'), false);
 });
