@@ -284,14 +284,17 @@ const MAJOR_JOB_STEPS = [
   'Warranty Stage',
 ];
 
-function majorTaskStageStep(task) {
+function majorTaskIsComplete(task) {
   const status = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
+  return status === 'archived' || status === 'completed' || status === 'complete' ||
+    substatus === 'completed' || substatus === 'complete' ||
+    substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
+}
 
-  if (status === 'archived') return 5;
-  if (status === 'completed' || status === 'complete' ||
-      substatus === 'completed' || substatus === 'complete' ||
-      substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath')) return 5;
+function majorTaskStageStep(task) {
+  const substatus = normaliseName(taskSubstatus(task));
+  if (majorTaskIsComplete(task)) return MAJOR_JOB_STEPS.length;
   if (/^1 1 [24678] /.test(substatus)) return 1;
   if (/^1 7 /.test(substatus) || /^2 4 /.test(substatus) ||
       /^1 5 3 /.test(substatus) ||
@@ -544,7 +547,7 @@ export function deriveJobStatus(
   const quote = deriveStatus(quoteStatus, quoteSubstatusText, unit);
   const quoteState = String(quoteStatus || '').trim().toLowerCase();
   if (quoteState === 'rejected') {
-    return { ...quote, ...(unit === 'major' ? { steps: MAJOR_JOB_STEPS } : {}), tone: 'declined' };
+    return { ...quote, ...(unit === 'major' ? { steps: MAJOR_JOB_STEPS, step: 1 } : {}), tone: 'declined' };
   }
 
   const progress = jobProgress(unit, task, hasSiteVisit);
@@ -577,11 +580,9 @@ export function deriveJobStatus(
 
 function applyMajorTaskPresentation(status, task, message) {
   const { schedulerSlaType: _schedulerSlaType, ...presented } = status;
-  const taskState = normaliseName(task?.status || task?.taskstatus || '');
   const substatus = normaliseName(taskSubstatus(task));
   const stageStep = majorTaskStageStep(task);
-  const complete = taskState === 'completed' || taskState === 'complete' || taskState === 'archived' ||
-    substatus.startsWith('4 1 completed job') || substatus.startsWith('4 2 completed bath');
+  const complete = majorTaskIsComplete(task);
 
   if (complete) {
     return {

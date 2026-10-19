@@ -281,6 +281,42 @@ test('Major Mods uses the reviewed customer wording and presentation rules', () 
   assert.equal(archivedWithSubstatus.message, 'Job complete');
 });
 
+test('Major Mods plain completion substatuses agree with the final stage', () => {
+  for (const status of ['Pending', 'In Progress', 'Not Started']) {
+    for (const substatus of ['Complete', 'Completed']) {
+      const result = deriveJobStatus('Approved', '', 'major', { status, substatus });
+      assert.equal(result.label, 'Job complete');
+      assert.equal(result.steps[result.step - 1], 'Warranty Stage');
+      assert.equal(result.schedulerSlaType, undefined);
+    }
+  }
+});
+
+test('Major Mods archived tasks ignore retained substatuses and booking promises', () => {
+  for (const substatus of ['', 'Ready to invoice', 'On hold', 'External Contractor', 'Any future substatus']) {
+    const task = { status: 'Archived', substatus: { substatus } };
+    const result = deriveJobStatus('Approved', '', 'major', task);
+    assert.equal(majorTaskPortalWording(task), 'Job complete');
+    assert.equal(result.label, 'Job complete');
+    assert.equal(result.message, 'Job complete');
+    assert.equal(result.tone, 'complete');
+    assert.equal(result.steps[result.step - 1], 'Warranty Stage');
+    assert.equal(result.schedulerSlaType, undefined);
+  }
+});
+
+test('Rejected Major Mods retain five stages without implying approval', () => {
+  const result = deriveJobStatus('Rejected', '', 'major');
+  assert.deepEqual(result.steps, [
+    'Quoting Stage', 'Approval Stage', 'Project Documentation Stage', 'Construction Stage',
+    'Warranty Stage',
+  ]);
+  assert.equal(result.step, 1);
+  assert.equal(result.tone, 'declined');
+  assert.equal(result.label, 'Not proceeding');
+  assert.equal(result.schedulerSlaType, undefined);
+});
+
 test('Major Mods uses exactly five stages through warranty', () => {
   const scenarios = [
     ['Not Started', '1.1.1 DRAFTY ORDER - TO BE BOOKED [RS-3D]', 3],
@@ -339,7 +375,7 @@ test('Major Mods uses exactly five stages through warranty', () => {
   ]);
   assert.equal(declined.terminal, 'declined');
   assert.equal(declined.label, 'Not proceeding');
-  assert.equal(declined.step, 0);
+  assert.equal(declined.step, 1);
 });
 
 test('Minor Mods uses the approved workbook wording for every configured task state', () => {
