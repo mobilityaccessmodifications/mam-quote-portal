@@ -280,8 +280,8 @@ function isExternalContractor(task) {
 const STANDARD_JOB_STEPS = ['Quoted', 'Approved', 'Booked', 'Complete'];
 const CUSTOM_MINOR_JOB_STEPS = ['Quoted', 'Approved', '1st Visit Booked', '2nd Visit Booked', 'Completed'];
 const MAJOR_JOB_STEPS = [
-  'Quote', 'Approval', 'Draftsperson', 'Project Documentation',
-  'Scheduling', 'Construction', 'Completion',
+  'Quoting Stage', 'Approval Stage', 'Project Documentation Stage', 'Construction Stage',
+  'Warranty Stage',
 ];
 
 function majorTaskIsComplete(task) {
@@ -295,11 +295,13 @@ function majorTaskIsComplete(task) {
 function majorTaskStageStep(task) {
   const substatus = normaliseName(taskSubstatus(task));
   if (majorTaskIsComplete(task)) return MAJOR_JOB_STEPS.length;
-  if (/^1 1 /.test(substatus)) return 3;
-  if (/^1 [234] /.test(substatus) || substatus === 'measure complete') return 4;
-  if (/^1 [56] /.test(substatus) || substatus === 'booked') return 5;
+  if (/^1 1 [24678] /.test(substatus)) return 1;
   if (/^1 7 /.test(substatus) || /^2 4 /.test(substatus) ||
-      substatus === 'external contractor' || substatus === 'external supplier') return 6;
+      /^1 5 3 /.test(substatus) ||
+      substatus === 'external contractor' || substatus === 'external supplier') return 4;
+  if (/^1 1 [135] /.test(substatus) || /^1 [23456] /.test(substatus) ||
+      substatus === 'measure complete' || substatus === 'booked' ||
+      substatus === 'waiting for deposit payment') return 3;
   return 2;
 }
 
@@ -552,11 +554,12 @@ export function deriveJobStatus(
   const jobSteps = progress.steps;
 
   if (quoteState !== 'approved') {
+    const quoteStep = unit === 'major' && quoteState === 'pending approval' ? 2 : 1;
     if (hasSiteVisit) {
       return {
         ...quote,
         steps: jobSteps,
-        step: progress.customMinor ? progress.customStep : 2,
+        step: unit === 'major' ? quoteStep : progress.customMinor ? progress.customStep : 2,
         label: 'Site visit completed',
         message: '',
         tone: 'approved',
@@ -565,7 +568,7 @@ export function deriveJobStatus(
     return {
       ...quote,
       steps: jobSteps,
-      step: 1,
+      step: quoteStep,
       label: 'Quoted — awaiting approval',
       message: 'Your quote has been prepared and is awaiting approval.',
       tone: 'quoted',
